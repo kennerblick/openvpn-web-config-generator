@@ -1,13 +1,10 @@
 version: "3.8"
-
 services:
   vpn-web:
     build: .
     container_name: openvpn-web
     ports:
       - "9192:9192"
-    volumes:
-      - ./openvpn-data:/etc/openvpn
     cap_add:
       - NET_ADMIN
     restart: unless-stopped

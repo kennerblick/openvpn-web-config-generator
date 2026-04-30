@@ -1,81 +1,53 @@
 from flask import Flask, render_template, request, jsonify, send_file
-import subprocess, os, secrets, string, re
+import subprocess, os, secrets, string, uuid
+from pathlib import Path
 
 app = Flask(__name__)
+BASE_JOBS_DIR = Path("/app/jobs")
+BASE_JOBS_DIR.mkdir(exist_ok=True)
 
-OPENVPN_DIR = "/etc/openvpn"
-JOB_STATUS = {
-    "state": "idle",
-    "progress": 0,
-    "message": "",
-    "server_conf": None,
-    "client_ovpn": None
-}
+JOB_STATUS = {"state":"idle","progress":0,"message":""}
 
-def update(p, msg):
-    JOB_STATUS.update({"state": "running", "progress": p, "message": msg})
+def update(p,m): JOB_STATUS.update({"state":"running","progress":p,"message":m})
 
-def gen_password(n=16):
-    chars = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(chars) for _ in range(n))
+def gen_pw(n=16): return ''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(n))
 
 @app.route("/")
-def index():
-    return render_template("index.html")
+def index(): return render_template("index.html")
 
 @app.route("/create", methods=["POST"])
 def create():
     try:
-        server_ip = request.form["server_ip"]
-        port = request.form.get("port","1194")
-        proto = request.form.get("proto","udp")
-        client = request.form.get("client","clientname")
-        expire = request.form.get("expire","365")
-
-        update(10, "Initialisiere Umgebung")
-
-        subprocess.run([
-            "ovpn_genconfig",
-            "-u", f"{proto}://{server_ip}:{port}",
-            "-C","AES-256-GCM",
-            "-a","SHA512",
-            "-c"
-        ], cwd=OPENVPN_DIR, check=True)
-
-        update(40, "Initialisiere PKI")
-        if not os.path.exists(f"{OPENVPN_DIR}/pki"):
-            subprocess.run(["ovpn_initpki","nopass"], cwd=OPENVPN_DIR, check=True)
-
-        update(70, "Erzeuge Client-Zertifikat")
-        pwd = gen_password()
-        subprocess.run(f"echo {pwd} | ovpn_adduser {client}", shell=True, cwd=OPENVPN_DIR, check=True)
-
-        client_file = f"/app/{client}.ovpn"
-        subprocess.run(f"ovpn_getclient {client} > {client_file}", shell=True, check=True)
-
-        update(100, "Fertig")
-
-        JOB_STATUS.update({
-            "state": "done",
-            "server_conf": "server.conf",
-            "client_ovpn": f"{client}.ovpn",
-            "username": client,
-            "password": pwd
-        })
-
-        return jsonify({"ok": True})
-
+        job = f"job-{uuid.uuid4().hex[:6]}"
+        jobdir = BASE_JOBS_DIR/job
+        ovpn = jobdir/"openvpn"
+        ovpn.mkdir(parents=True)
+        ip=request.form["server_ip"]
+        port=request.form.get("port","1194")
+        proto=request.form.get("proto","udp")
+        client=request.form.get("client","clientname")
+        pw=gen_pw()
+        env=os.environ.copy(); env["OPENVPN"]=str(ovpn)
+        update(20,"Server-Konfiguration")
+        subprocess.run(["ovpn_genconfig","-u",f"{proto}://{ip}:{port}","-C","AES-256-GCM","-a","SHA512","-c"],env=env,check=True)
+        update(50,"PKI initialisieren")
+        subprocess.run("echo yes | ovpn_initpki nopass",shell=True,env=env,check=True)
+        update(80,"Client erzeugen")
+        subprocess.run(f"echo {pw} | ovpn_adduser {client}",shell=True,env=env,check=True)
+        subprocess.run(f"ovpn_getclient {client} > {jobdir}/{client}.ovpn",shell=True,env=env,check=True)
+        JOB_STATUS.update({"state":"done","progress":100,"message":"Fertig",
+            "server":f"{job}/openvpn/server.conf",
+            "client":f"{job}/{client}.ovpn",
+            "user":client,"password":pw})
+        return jsonify(ok=True)
     except Exception as e:
         JOB_STATUS.update({"state":"error","message":str(e)})
-        return jsonify({"error":str(e)}), 500
+        return jsonify(error=str(e)),500
 
 @app.route("/status")
-def status():
-    return jsonify(JOB_STATUS)
+def status(): return jsonify(JOB_STATUS)
 
-@app.route("/download/<name>")
-def download(name):
-    return send_file(f"/app/{name}", as_attachment=True)
+@app.route("/download/<path:p>")
+def dl(p): return send_file(BASE_JOBS_DIR/p, as_attachment=True)
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=9192)
+if __name__=="__main__": app.run("0.0.0.0",9192)

@@ -1,1 +1,101 @@
-<!doctype html><html><head><meta charset=utf-8><title>VPN Generator</title><link rel=stylesheet href="/static/style.css"></head><body><h1>OpenVPN Generator</h1><form id=f><input name=server_ip placeholder="Server IP" required><input name=client value=clientname><select name=proto><option value=udp>UDP</option><option value=tcp>TCP</option></select><input name=port value=1194><button>Erstellen</button></form><div id=s></div><script>f.onsubmit=e=>{e.preventDefault();fetch('/create',{method:'POST',body:new FormData(f)});poll()};async function poll(){let r=await fetch('/status'),d=await r.json();s.innerText=d.message+' '+(d.progress||'');if(d.state=='done'){s.innerHTML+=`<br><a href=/download/${d.server}>server.conf</a><br><a href=/download/${d.client}>client.ovpn</a>`;return}setTimeout(poll,500)}</script></body></html>
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenVPN Config Generator</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f6f8fb; padding:40px; }
+    .box { background:#fff; padding:20px; max-width:700px; margin:auto;
+           box-shadow:0 4px 12px rgba(0,0,0,.1); }
+    .hidden { display:none; }
+    progress { width:100%; height:18px; }
+    code { background:#eee; padding:6px; display:block; margin-top:10px; }
+  </style>
+</head>
+<body>
+
+<div class="box">
+  <h2>OpenVPN Generator</h2>
+
+  <form id="vpnForm">
+    <label>Server IP</label><br>
+    <input name="server_ip" required><br><br>
+
+    <label>Clientname</label><br>
+    <input name="client" value="clientname"><br><br>
+
+    <label>Protokoll</label><br>
+    <select name="proto">
+      <option value="udp" selected>UDP</option>
+      <option value="tcp">TCP</option>
+    </select><br><br>
+
+    <label>Port</label><br>
+    <input name="port" value="1194"><br><br>
+
+    <button type="submit">Erstellen</button>
+  </form>
+
+  <div id="statusBox" class="hidden">
+    <p id="statusText"></p>
+    <progress id="progress" value="0" max="100"></progress>
+  </div>
+
+  <div id="result" class="hidden"></div>
+</div>
+
+<script>
+const form = document.getElementById("vpnForm");
+const statusBox = document.getElementById("statusBox");
+const statusText = document.getElementById("statusText");
+const progress = document.getElementById("progress");
+const result = document.getElementById("result");
+
+form.onsubmit = e => {
+  e.preventDefault();
+  statusBox.classList.remove("hidden");
+  result.classList.add("hidden");
+
+  fetch("/create", { method:"POST", body:new FormData(form) });
+  pollStatus();
+};
+
+async function pollStatus() {
+  const res = await fetch("/status");
+  const d = await res.json();
+
+  statusText.textContent = d.message + " (" + d.progress + "%)";
+  progress.value = d.progress;
+
+  if (d.state === "done") {
+    showResult(d);
+    return;
+  }
+  if (d.state === "error") {
+    statusText.textContent = "Fehler: " + d.message;
+    return;
+  }
+  setTimeout(pollStatus, 500);
+}
+
+function showResult(d) {
+  result.classList.remove("hidden");
+
+  if (!d.server_conf || !d.client_ovpn) {
+    result.innerHTML = "<b>Fehler:</b> Dateipfade fehlen";
+    return;
+  }
+
+  result.innerHTML = `
+    <h3>Downloads</h3>
+    <a href="/download/${d.server_conf}nf herunterladen</a><br>
+    /download/${d.client_ovpn}client.ovpn herunterladen</a>
+
+    <h3>Zertifikat‑Passwort</h3>
+    <code>${d.cert_password}</code>
+  `;
+}
+</script>
+
+</body>
+</html>

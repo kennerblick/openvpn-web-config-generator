@@ -103,16 +103,13 @@ def create():
         # ---- Step 3: Client-Zertifikat MIT Passwort ----
         update(70, "Erzeuge Client-Zertifikat (geschützt)")
 
+        cmd = f"printf '%s\n%s\n' '{cert_password}' '{cert_password}' | easyrsa build-client-full {client} pass"
+
         subprocess.run(
-            [
-                "easyrsa",
-                "build-client-full",
-                client,
-                "pass"
-            ],
-            env=dict(env, EASYRSA_PASSPHRASE=cert_password),
+            cmd,
+            shell=True,
+            env=dict(env, EASYRSA_BATCH="1"),
             cwd=ovpn_dir,
-            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True

@@ -12,14 +12,14 @@ app = Flask(__name__)
 BASE_JOBS_DIR = Path("/app/jobs")
 BASE_JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Einfacher globaler Status (ein Job gleichzeitig)
+# Globaler Status (ein Job gleichzeitig)
 JOB_STATUS = {
     "state": "idle",        # idle | running | done | error
-    "progress": 0,          # 0–100
+    "progress": 0,
     "message": "",
-    "server_conf": None,    # relativer Pfad für Download
-    "client_ovpn": None,    # relativer Pfad für Download
-    "cert_password": None   # Passwort für Client-Key
+    "server_conf": None,
+    "client_ovpn": None,
+    "cert_password": None
 }
 
 # ---------------- Hilfsfunktionen ----------------
@@ -37,7 +37,6 @@ def generate_cert_password(length=12):
     digits = string.digits
     special = "!@#$%^&*()-_=+"
 
-    # Pflichtzeichen
     pwd = [
         secrets.choice(upper),
         secrets.choice(lower),
@@ -94,7 +93,16 @@ def create():
             check=True
         )
 
-        # ---- Step 2: PKI (CA ohne Passwort!) ----
+        # ---- openvpn.conf → server.conf ----
+        openvpn_conf = ovpn_dir / "openvpn.conf"
+        server_conf = ovpn_dir / "server.conf"
+
+        if not openvpn_conf.exists():
+            raise RuntimeError("openvpn.conf wurde nicht erzeugt")
+
+        openvpn_conf.rename(server_conf)
+
+        # ---- Step 2: PKI (CA ohne Passwort) ----
         update(40, "Initialisiere einmalige Job-PKI")
 
         subprocess.run(
@@ -134,7 +142,8 @@ def create():
             check=True
         )
 
-        server_conf = ovpn_dir / "server.conf"
+        if not client_ovpn.exists():
+            raise RuntimeError("client.ovpn wurde nicht erzeugt")
 
         # ---- Fertig ----
         JOB_STATUS.update({

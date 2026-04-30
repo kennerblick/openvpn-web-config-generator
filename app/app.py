@@ -92,7 +92,7 @@ def create():
         update(40, "Initialisiere Job-PKI")
 
         subprocess.run(
-            ["ovpn_initpki"],
+            ["ovpn_initpki", "nopass"],
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

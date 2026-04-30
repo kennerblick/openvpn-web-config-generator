@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenVPN Config Generator</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>OpenVPN Config Generator</h1>
+
+  <form id="vpnForm">
+    <input name="server_ip" placeholder="Server IP" required>
+    <input name="port" placeholder="OpenVPN Port (UDP)" required>
+    <input name="client" placeholder="Client Name" required>
+    <button type="submit">Create</button>
+  </form>
+
+  <pre id="result"></pre>
+
+  <script>
+    document.getElementById("vpnForm").onsubmit = async e => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const res = await fetch("/create", { method: "POST", body: formData });
+      const data = await res.json();
+
+      if (data.error) {
+        result.textContent = data.error;
+      } else {
+        result.textContent =
+          "Username: " + data.username + "\n" +
+          "Password: " + data.password + "\n\n" +
+          "Download: /download/" + data.client_file;
+      }
+    };
+  </script>
+</body>
+</html>

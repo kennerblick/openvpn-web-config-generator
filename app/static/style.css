@@ -1,0 +1,26 @@
+body {
+  font-family: sans-serif;
+  background: #111;
+  color: #eee;
+  padding: 40px;
+}
+
+input, button {
+  display: block;
+  margin: 10px 0;
+  padding: 10px;
+  width: 300px;
+}
+
+button {
+  background: #2ecc71;
+  border: none;
+  color: black;
+  cursor: pointer;
+}
+
+pre {
+  background: #222;
+  padding: 20px;
+  margin-top: 20px;
+}

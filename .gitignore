@@ -1,0 +1,3 @@
+openvpn-data/*
+*.ovpn
+__pycache__/

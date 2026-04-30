@@ -8,24 +8,28 @@ import string
 
 app = Flask(__name__)
 
+# Basisverzeichnis für alle Jobs
 BASE_JOBS_DIR = Path("/app/jobs")
 BASE_JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Einfacher globaler Status (ein Job gleichzeitig)
 JOB_STATUS = {
-    "state": "idle",
-    "progress": 0,
+    "state": "idle",        # idle | running | done | error
+    "progress": 0,          # 0–100
     "message": "",
-    "server_conf": None,
-    "client_ovpn": None,
-    "cert_password": None
+    "server_conf": None,    # relativer Pfad für Download
+    "client_ovpn": None,    # relativer Pfad für Download
+    "cert_password": None   # Passwort für Client-Key
 }
 
-# ---------- Utilities ----------
+# ---------------- Hilfsfunktionen ----------------
 
 def update(progress, message):
-    JOB_STATUS["state"] = "running"
-    JOB_STATUS["progress"] = progress
-    JOB_STATUS["message"] = message
+    JOB_STATUS.update({
+        "state": "running",
+        "progress": progress,
+        "message": message
+    })
 
 def generate_cert_password(length=12):
     upper = string.ascii_uppercase
@@ -34,7 +38,7 @@ def generate_cert_password(length=12):
     special = "!@#$%^&*()-_=+"
 
     # Pflichtzeichen
-    password = [
+    pwd = [
         secrets.choice(upper),
         secrets.choice(lower),
         secrets.choice(digits),
@@ -42,12 +46,11 @@ def generate_cert_password(length=12):
     ]
 
     all_chars = upper + lower + digits + special
-    password += [secrets.choice(all_chars) for _ in range(length - 4)]
+    pwd += [secrets.choice(all_chars) for _ in range(length - 4)]
+    secrets.SystemRandom().shuffle(pwd)
+    return "".join(pwd)
 
-    secrets.SystemRandom().shuffle(password)
-    return "".join(password)
-
-# ---------- Routes ----------
+# ---------------- Routes ----------------
 
 @app.route("/")
 def index():
@@ -56,11 +59,13 @@ def index():
 @app.route("/create", methods=["POST"])
 def create():
     try:
+        # ---- Eingaben ----
         server_ip = request.form["server_ip"]
         port = request.form.get("port", "1194")
         proto = request.form.get("proto", "udp")
         client = request.form.get("client", "clientname")
 
+        # ---- Job-Struktur ----
         job_id = f"job-{uuid.uuid4().hex[:6]}"
         job_dir = BASE_JOBS_DIR / job_id
         ovpn_dir = job_dir / "openvpn"
@@ -68,13 +73,14 @@ def create():
 
         cert_password = generate_cert_password()
 
+        # ---- Umgebung für kylemanna/openvpn ----
         env = os.environ.copy()
         env["OPENVPN"] = str(ovpn_dir)
         env["EASYRSA_BATCH"] = "1"
         env["EASYRSA_REQ_CN"] = "job-ca"
 
-        # ---- Step 1: Server config ----
-        update(15, "Erzeuge Server-Konfiguration")
+        # ---- Step 1: Server-Konfiguration ----
+        update(20, "Erzeuge Server-Konfiguration")
 
         subprocess.run(
             [
@@ -88,8 +94,8 @@ def create():
             check=True
         )
 
-        # ---- Step 2: PKI ----
-        update(40, "Initialisiere Job-PKI")
+        # ---- Step 2: PKI (CA ohne Passwort!) ----
+        update(40, "Initialisiere einmalige Job-PKI")
 
         subprocess.run(
             ["ovpn_initpki", "nopass"],
@@ -103,20 +109,24 @@ def create():
         # ---- Step 3: Client-Zertifikat MIT Passwort ----
         update(70, "Erzeuge Client-Zertifikat (geschützt)")
 
-        cmd = f"printf '%s\n%s\n' '{cert_password}' '{cert_password}' | easyrsa build-client-full {client} pass"
+        cmd = (
+            f"printf '%s\n%s\n' '{cert_password}' '{cert_password}' | "
+            f"easyrsa build-client-full {client} pass"
+        )
 
         subprocess.run(
             cmd,
             shell=True,
-            env=dict(env, EASYRSA_BATCH="1"),
+            env=env,
             cwd=ovpn_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True
         )
 
-        # ---- Step 4: Client config ----
+        # ---- Step 4: Client-.ovpn erzeugen ----
         client_ovpn = job_dir / f"{client}.ovpn"
+
         subprocess.run(
             f"ovpn_getclient {client} > {client_ovpn}",
             shell=True,
@@ -124,6 +134,9 @@ def create():
             check=True
         )
 
+        server_conf = ovpn_dir / "server.conf"
+
+        # ---- Fertig ----
         JOB_STATUS.update({
             "state": "done",
             "progress": 100,
@@ -138,6 +151,7 @@ def create():
     except Exception as e:
         JOB_STATUS.update({
             "state": "error",
+            "progress": JOB_STATUS.get("progress", 0),
             "message": str(e)
         })
         return jsonify({"error": str(e)}), 500

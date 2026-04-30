@@ -1,38 +1,88 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>OpenVPN Config Generator</title>
-  <link rel="stylesheet" href="/static/style.css">
+<meta charset="UTF-8">
+<title>OpenVPN Secure Config Generator</title>
+/static/style.css
 </head>
 <body>
-  <h1>OpenVPN Config Generator</h1>
 
-  <form id="vpnForm">
-    <input name="server_ip" placeholder="Server IP" required>
-    <input name="port" placeholder="OpenVPN Port (UDP)" required>
-    <input name="client" placeholder="Client Name" required>
-    <button type="submit">Create</button>
-  </form>
+<header>
+  /static/logo.svg
+  <h1>Secure VPN Configuration</h1>
+  <p>Professionelle OpenVPN‑Profile</p>
+</header>
 
-  <pre id="result"></pre>
+<main>
+<section class="card">
+<form id="vpnForm">
+  <label>Server‑IP</label>
+  <input name="server_ip" required>
 
-  <script>
-    document.getElementById("vpnForm").onsubmit = async e => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const res = await fetch("/create", { method: "POST", body: formData });
-      const data = await res.json();
+  <label>Clientname</label>
+  <input name="client" value="clientname">
 
-      if (data.error) {
-        result.textContent = data.error;
-      } else {
-        result.textContent =
-          "Username: " + data.username + "\n" +
-          "Password: " + data.password + "\n\n" +
-          "Download: /download/" + data.client_file;
-      }
-    };
-  </script>
+  <div class="row">
+    <div>
+      <label>Protokoll</label>
+      <select name="proto">
+        <option value="udp" selected>UDP</option>
+        <option value="tcp">TCP</option>
+      </select>
+    </div>
+    <div>
+      <label>Port</label>
+      <input name="port" value="1194">
+    </div>
+  </div>
+
+  <label>Zertifikat gültig</label>
+  <select name="expire">
+    <option value="30">30 Tage</option>
+    <option value="90">90 Tage</option>
+    <option value="365" selected>365 Tage</option>
+  </select>
+
+  <button type="submit">Create VPN Config</button>
+</form>
+</section>
+
+<section id="statusBox" class="card hidden">
+  <h2>Status</h2>
+  <div class="progress">
+    <div id="bar"></div>
+  </div>
+  <p id="statusText"></p>
+</section>
+
+<section id="downloads" class="card hidden"></section>
+</main>
+
+<script>
+vpnForm.onsubmit = e => {
+  e.preventDefault();
+  statusBox.classList.remove("hidden");
+  fetch("/create",{method:"POST",body:new FormData(vpnForm)});
+  poll();
+};
+
+async function poll(){
+  const r = await fetch("/status");
+  const d = await r.json();
+  bar.style.width = d.progress + "%";
+  statusText.textContent = d.message + " ("+d.progress+"%)";
+  if(d.state==="done"){
+    downloads.classList.remove("hidden");
+    downloads.innerHTML = `
+      <h2>Downloads</h2>
+      /download/${d.server_conf}server.conf</a><br>
+      /download/${d.client_ovpn}${d.client_ovpn}</a>
+      <p><b>Username:</b> ${d.username}<br><b>Password:</b> ${d.password}</p>`;
+    return;
+  }
+  setTimeout(poll,500);
+}
+</script>
+
 </body>
 </html>

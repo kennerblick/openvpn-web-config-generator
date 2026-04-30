@@ -1,19 +1,23 @@
-from flask import Flask, request, render_template, jsonify, send_file
-import subprocess
-import secrets
-import string
-import os
-import re
+from flask import Flask, render_template, request, jsonify, send_file
+import subprocess, os, secrets, string, re
 
 app = Flask(__name__)
+
 OPENVPN_DIR = "/etc/openvpn"
+JOB_STATUS = {
+    "state": "idle",
+    "progress": 0,
+    "message": "",
+    "server_conf": None,
+    "client_ovpn": None
+}
 
-def valid_ip(ip):
-    return re.match(r"^(\d{1,3}\.){3}\d{1,3}$", ip)
+def update(p, msg):
+    JOB_STATUS.update({"state": "running", "progress": p, "message": msg})
 
-def gen_password(length=16):
-    alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
+def gen_password(n=16):
+    chars = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(chars) for _ in range(n))
 
 @app.route("/")
 def index():
@@ -21,55 +25,53 @@ def index():
 
 @app.route("/create", methods=["POST"])
 def create():
-    server_ip = request.form.get("server_ip")
-    port = request.form.get("port")
-    client = request.form.get("client")
+    try:
+        server_ip = request.form["server_ip"]
+        port = request.form.get("port","1194")
+        proto = request.form.get("proto","udp")
+        client = request.form.get("client","clientname")
+        expire = request.form.get("expire","365")
 
-    if not valid_ip(server_ip):
-        return jsonify({"error": "Ungültige IP-Adresse"}), 400
+        update(10, "Initialisiere Umgebung")
 
-    if not port.isdigit() or not (1 <= int(port) <= 65535):
-        return jsonify({"error": "Ungültiger Port"}), 400
+        subprocess.run([
+            "ovpn_genconfig",
+            "-u", f"{proto}://{server_ip}:{port}",
+            "-C","AES-256-GCM",
+            "-a","SHA512",
+            "-c"
+        ], cwd=OPENVPN_DIR, check=True)
 
-    username = client
-    password = gen_password()
+        update(40, "Initialisiere PKI")
+        if not os.path.exists(f"{OPENVPN_DIR}/pki"):
+            subprocess.run(["ovpn_initpki","nopass"], cwd=OPENVPN_DIR, check=True)
 
-    os.makedirs(OPENVPN_DIR, exist_ok=True)
+        update(70, "Erzeuge Client-Zertifikat")
+        pwd = gen_password()
+        subprocess.run(f"echo {pwd} | ovpn_adduser {client}", shell=True, cwd=OPENVPN_DIR, check=True)
 
-    # Server config
-    subprocess.run([
-        "ovpn_genconfig",
-        "-u", f"udp://{server_ip}:{port}",
-        "-C", "AES-256-GCM",
-        "-a", "SHA512",
-        "-c"
-    ], cwd=OPENVPN_DIR, check=True)
+        client_file = f"/app/{client}.ovpn"
+        subprocess.run(f"ovpn_getclient {client} > {client_file}", shell=True, check=True)
 
-    # PKI
-    if not os.path.exists(f"{OPENVPN_DIR}/pki"):
-        subprocess.run(["ovpn_initpki", "nopass"], cwd=OPENVPN_DIR, check=True)
+        update(100, "Fertig")
 
-    # Benutzer anlegen
-    subprocess.run(
-        f"echo {password} | ovpn_adduser {username}",
-        shell=True,
-        cwd=OPENVPN_DIR,
-        check=True
-    )
+        JOB_STATUS.update({
+            "state": "done",
+            "server_conf": "server.conf",
+            "client_ovpn": f"{client}.ovpn",
+            "username": client,
+            "password": pwd
+        })
 
-    # Client Datei erzeugen
-    client_file = f"/app/{username}.ovpn"
-    subprocess.run(
-        f"ovpn_getclient {username} > {client_file}",
-        shell=True,
-        check=True
-    )
+        return jsonify({"ok": True})
 
-    return jsonify({
-        "username": username,
-        "password": password,
-        "client_file": f"{username}.ovpn"
-    })
+    except Exception as e:
+        JOB_STATUS.update({"state":"error","message":str(e)})
+        return jsonify({"error":str(e)}), 500
+
+@app.route("/status")
+def status():
+    return jsonify(JOB_STATUS)
 
 @app.route("/download/<name>")
 def download(name):

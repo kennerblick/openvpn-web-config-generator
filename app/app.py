@@ -8,29 +8,46 @@ import string
 
 app = Flask(__name__)
 
-# Basisverzeichnis für Job-PKIs
 BASE_JOBS_DIR = Path("/app/jobs")
 BASE_JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Globaler Job-Status (ein Job zur Zeit)
 JOB_STATUS = {
-    "state": "idle",      # idle | running | done | error
-    "progress": 0,        # 0–100
+    "state": "idle",
+    "progress": 0,
     "message": "",
     "server_conf": None,
     "client_ovpn": None,
-    "username": None,
-    "password": None,
+    "cert_password": None
 }
+
+# ---------- Utilities ----------
 
 def update(progress, message):
     JOB_STATUS["state"] = "running"
     JOB_STATUS["progress"] = progress
     JOB_STATUS["message"] = message
 
-def gen_password(length=16):
-    chars = string.ascii_letters + string.digits
-    return "".join(secrets.choice(chars) for _ in range(length))
+def generate_cert_password(length=12):
+    upper = string.ascii_uppercase
+    lower = string.ascii_lowercase
+    digits = string.digits
+    special = "!@#$%^&*()-_=+"
+
+    # Pflichtzeichen
+    password = [
+        secrets.choice(upper),
+        secrets.choice(lower),
+        secrets.choice(digits),
+        secrets.choice(special)
+    ]
+
+    all_chars = upper + lower + digits + special
+    password += [secrets.choice(all_chars) for _ in range(length - 4)]
+
+    secrets.SystemRandom().shuffle(password)
+    return "".join(password)
+
+# ---------- Routes ----------
 
 @app.route("/")
 def index():
@@ -39,28 +56,25 @@ def index():
 @app.route("/create", methods=["POST"])
 def create():
     try:
-        # -------- Eingaben mit Defaults --------
         server_ip = request.form["server_ip"]
         port = request.form.get("port", "1194")
         proto = request.form.get("proto", "udp")
         client = request.form.get("client", "clientname")
 
-        # -------- Job-Struktur --------
         job_id = f"job-{uuid.uuid4().hex[:6]}"
         job_dir = BASE_JOBS_DIR / job_id
         ovpn_dir = job_dir / "openvpn"
         ovpn_dir.mkdir(parents=True)
 
-        password = gen_password()
+        cert_password = generate_cert_password()
 
-        # -------- Umgebung für kylemanna/openvpn --------
         env = os.environ.copy()
         env["OPENVPN"] = str(ovpn_dir)
         env["EASYRSA_BATCH"] = "1"
         env["EASYRSA_REQ_CN"] = "job-ca"
 
-        # -------- Schritt 1: Server-Konfiguration --------
-        update(20, "Erzeuge Server-Konfiguration")
+        # ---- Step 1: Server config ----
+        update(15, "Erzeuge Server-Konfiguration")
 
         subprocess.run(
             [
@@ -74,11 +88,11 @@ def create():
             check=True
         )
 
-        # -------- Schritt 2: PKI initialisieren (Job-PKI) --------
-        update(50, "Initialisiere einmalige PKI")
+        # ---- Step 2: PKI ----
+        update(40, "Initialisiere Job-PKI")
 
         subprocess.run(
-            ["ovpn_initpki", "nopass"],
+            ["ovpn_initpki"],
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -86,16 +100,25 @@ def create():
             check=True
         )
 
-        # -------- Schritt 3: Client-Zertifikat + Config --------
-        update(80, "Erzeuge Client-Konfiguration")
+        # ---- Step 3: Client-Zertifikat MIT Passwort ----
+        update(70, "Erzeuge Client-Zertifikat (geschützt)")
 
         subprocess.run(
-            f"echo {password} | ovpn_adduser {client}",
-            shell=True,
-            env=env,
+            [
+                "easyrsa",
+                "build-client-full",
+                client,
+                "pass"
+            ],
+            env=dict(env, EASYRSA_PASSPHRASE=cert_password),
+            cwd=ovpn_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             check=True
         )
 
+        # ---- Step 4: Client config ----
         client_ovpn = job_dir / f"{client}.ovpn"
         subprocess.run(
             f"ovpn_getclient {client} > {client_ovpn}",
@@ -104,17 +127,13 @@ def create():
             check=True
         )
 
-        server_conf = ovpn_dir / "server.conf"
-
-        # -------- Fertig --------
         JOB_STATUS.update({
             "state": "done",
             "progress": 100,
             "message": "VPN-Konfiguration fertig",
             "server_conf": f"{job_id}/openvpn/server.conf",
             "client_ovpn": f"{job_id}/{client}.ovpn",
-            "username": client,
-            "password": password,
+            "cert_password": cert_password
         })
 
         return jsonify({"ok": True})

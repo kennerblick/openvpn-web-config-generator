@@ -7,4 +7,9 @@ services:
       - "9192:9192"
     cap_add:
       - NET_ADMIN
+    volumes:
+      - vpn-jobs:/app/jobs
     restart: unless-stopped
+
+volumes:
+  vpn-jobs:

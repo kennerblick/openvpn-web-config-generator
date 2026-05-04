@@ -49,9 +49,11 @@ def set_status(status: dict, progress: int, message: str) -> None:
 def run(cmd: list, env: dict | None = None) -> subprocess.CompletedProcess:
     result = subprocess.run(cmd, env=env, capture_output=True, text=True)
     if result.returncode != 0:
+        # easy-rsa writes errors to stdout, not stderr
+        combined = (result.stdout + "\n" + result.stderr).strip()
         raise RuntimeError(
-            f"Fehler: {' '.join(str(c) for c in cmd)}\n"
-            f"STDERR: {result.stderr[-1500:]}"
+            f"{' '.join(str(c) for c in cmd)}\n\n"
+            f"{combined[-2000:] or '(keine Ausgabe)'}"
         )
     return result
 
@@ -97,9 +99,9 @@ def pki_env(pki_dir: Path, cn: str, cert_days: int) -> dict:
         "EASYRSA_REQ_CN": cn,
         "EASYRSA_CA_EXPIRE": str(cert_days * 3),
         "EASYRSA_CERT_EXPIRE": str(cert_days),
-        "EASYRSA_ALGO": "ec",
-        "EASYRSA_CURVE": "secp384r1",
+        "EASYRSA_KEY_SIZE": "2048",
         "EASYRSA_DIGEST": "sha512",
+        # RSA 2048 (default) – zuverlässiger als EC across Alpine easy-rsa versions
     }
 
 
@@ -177,7 +179,7 @@ data-ciphers AES-256-GCM
 data-ciphers-fallback AES-256-GCM
 auth SHA512
 tls-version-min 1.2
-tls-cipher TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
+tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
 
 server 10.8.0.0 255.255.255.0
 push "redirect-gateway def1 bypass-dhcp"
@@ -194,8 +196,8 @@ group nogroup
 auth-user-pass-verify /etc/openvpn/checkpwd.sh via-env
 script-security 2
 
-status /var/log/openvpn/status.log
-log-append /var/log/openvpn/openvpn.log
+status /var/log/openvpn-status.log
+log-append /var/log/openvpn.log
 verb 3
 {exit_notify}
 
@@ -239,7 +241,7 @@ data-ciphers AES-256-GCM
 data-ciphers-fallback AES-256-GCM
 auth SHA512
 tls-version-min 1.2
-tls-cipher TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
+tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
 remote-cert-tls server
 
 auth-user-pass
@@ -267,23 +269,32 @@ def generate_vpn(jid: str, server_ip: str, port: int, proto: str,
                  client_name: str, cert_days: int) -> None:
     status = JOBS[jid]
     job_dir = BASE_JOBS_DIR / jid
+    job_dir.mkdir(parents=True, exist_ok=True)
     pki_dir = job_dir / "pki"
-    pki_dir.mkdir(parents=True)
+    # Do NOT pre-create pki_dir — let easyrsa init-pki create it
 
     try:
         env = pki_env(pki_dir, f"ca-{jid[:8]}", cert_days)
 
         set_status(status, 10, "Initialisiere PKI …")
-        run([EASYRSA, "init-pki"], env=env)
+        run([EASYRSA, "--batch", "init-pki"], env=env)
 
         set_status(status, 20, "Erstelle CA …")
-        run([EASYRSA, "build-ca", "nopass"], env=env)
+        run([EASYRSA, "--batch", "build-ca", "nopass"], env=env)
+        if not (pki_dir / "ca.crt").exists():
+            raise RuntimeError("CA-Zertifikat nicht erstellt — easy-rsa Fehler")
 
         set_status(status, 40, "Erstelle Server-Zertifikat …")
-        run([EASYRSA, "build-server-full", "server", "nopass"], env=env)
+        run([EASYRSA, "--batch", "build-server-full", "server", "nopass"], env=env)
 
         set_status(status, 55, "Erstelle TLS-Crypt-Schlüssel …")
-        run(["openvpn", "--genkey", "tls-crypt", str(pki_dir / "ta.key")])
+        ta_key = str(pki_dir / "ta.key")
+        try:
+            # OpenVPN 2.6+ syntax
+            run(["openvpn", "--genkey", "tls-crypt", ta_key])
+        except RuntimeError:
+            # OpenVPN 2.4/2.5 fallback
+            run(["openvpn", "--genkey", "--secret", ta_key])
 
         set_status(status, 70, f"Erstelle Client-Zertifikat ({client_name}) …")
         run([EASYRSA, "build-client-full", client_name, "nopass"], env=env)

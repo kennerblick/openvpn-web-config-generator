@@ -58,6 +58,28 @@ h1 {
 .field-hint { font-size: .75rem; color: var(--dim); }
 .opt { color: var(--dim); font-weight: 400; }
 
+/* Toggle switch */
+.toggle-row {
+  display: flex; align-items: center; gap: .75rem;
+  font-size: .9rem; cursor: pointer; user-select: none;
+  color: var(--text);
+}
+.toggle-wrap { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+.toggle-wrap input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-slider {
+  position: absolute; inset: 0;
+  background: var(--border); border-radius: 22px;
+  transition: background .2s;
+}
+.toggle-slider::before {
+  content: ""; position: absolute;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; top: 3px; left: 3px;
+  transition: transform .2s;
+}
+.toggle-wrap input:checked + .toggle-slider { background: var(--primary); }
+.toggle-wrap input:checked + .toggle-slider::before { transform: translateX(18px); }
+
 label { font-size: .82rem; color: var(--dim); font-weight: 500; }
 .req { color: var(--error); }
 

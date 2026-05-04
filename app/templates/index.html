@@ -15,19 +15,15 @@
     <p class="subtitle">Wegwerf-VPN in einem Klick &mdash; IP eingeben, fertig.</p>
   </header>
 
-  <!-- Form -->
+  <!-- ── Form ── -->
   <div id="formSection" class="card">
     <form id="vpnForm">
+
+      <!-- Basis -->
       <div class="grid-2">
         <div class="field">
           <label>Server-IP / Hostname <span class="req">*</span></label>
           <input type="text" name="server_ip" placeholder="z.B. 1.2.3.4" required autofocus>
-        </div>
-        <div class="field">
-          <label>Client-Name</label>
-          <input type="text" name="client" value="client"
-                 pattern="[a-zA-Z0-9_-]+"
-                 title="Buchstaben, Zahlen, - und _ erlaubt">
         </div>
         <div class="field">
           <label>Protokoll</label>
@@ -40,42 +36,69 @@
           <label>Port</label>
           <input type="number" name="port" value="1194" min="1" max="65535">
         </div>
-        <div class="field span-2">
-          <label class="toggle-row">
-            <span class="toggle-wrap">
-              <input type="checkbox" name="redirect_gw" id="redirectGw" checked>
-              <span class="toggle-slider"></span>
-            </span>
-            Default-Gateway &uuml;ber VPN leiten <span class="opt">(Full-Tunnel)</span>
-          </label>
-        </div>
-        <div class="field span-2">
-          <label>Zielnetz <span class="opt">(optional)</span></label>
-          <input type="text" name="target_net" placeholder="z.B. 192.168.10.0/24"
-                 pattern="(\d{1,3}\.){3}\d{1,3}/\d{1,2}"
-                 title="CIDR-Notation, z.B. 192.168.10.0/24">
-          <div class="field-hint">Leer = alle Verbindungen &uuml;ber VPN (Full-Tunnel) &mdash; oder ein internes Netz f&uuml;r Split-Tunnel</div>
-        </div>
-        <div class="field span-2">
+        <div class="field">
           <label>
-            Zertifikat-Gültigkeit &mdash;
-            <span id="daysVal">365</span> Tage
+            Zertifikat-G&uuml;ltigkeit &mdash;
+            <span id="daysVal">365</span>&nbsp;Tage
           </label>
-          <input type="range" name="days" min="30" max="3650" value="365" id="daysRange"
+          <input type="range" name="days" min="30" max="3650" value="365"
                  oninput="document.getElementById('daysVal').textContent=this.value">
-          <div class="range-labels"><span>30 Tage</span><span>3650 Tage</span></div>
+          <div class="range-labels"><span>30</span><span>3650 Tage</span></div>
         </div>
       </div>
-      <button type="submit" class="btn-primary">VPN erstellen</button>
+
+      <!-- Clients -->
+      <div class="section-label">Clients</div>
+      <div id="clientList" class="client-list"></div>
+      <button type="button" class="btn-add" onclick="addClient()">&#43; Client hinzuf&uuml;gen</button>
+
+      <!-- Erweiterte Optionen -->
+      <button type="button" class="btn-advanced" id="advBtn"
+              onclick="toggleAdvanced()">
+        <span id="advArrow">&#9660;</span> Erweiterte Optionen
+      </button>
+      <div id="advSection" class="adv-section">
+        <div class="grid-2">
+          <div class="field span-2">
+            <label class="toggle-row">
+              <span class="toggle-wrap">
+                <input type="checkbox" name="use_auth_pass" id="useAuthPass" checked>
+                <span class="toggle-slider"></span>
+              </span>
+              Passwort-Authentifizierung
+              <span class="opt">(Benutzername&nbsp;+&nbsp;Passwort pro Client)</span>
+            </label>
+          </div>
+          <div class="field span-2">
+            <label class="toggle-row">
+              <span class="toggle-wrap">
+                <input type="checkbox" name="redirect_gw" id="redirectGw" checked>
+                <span class="toggle-slider"></span>
+              </span>
+              Default-Gateway &uuml;ber VPN leiten
+              <span class="opt">(Full-Tunnel)</span>
+            </label>
+          </div>
+          <div class="field span-2">
+            <label>Zielnetz <span class="opt">(optional, CIDR)</span></label>
+            <input type="text" name="target_net" placeholder="z.B. 192.168.10.0/24"
+                   pattern="(\d{1,3}\.){3}\d{1,3}/\d{1,2}"
+                   title="CIDR-Notation, z.B. 192.168.10.0/24">
+            <div class="field-hint">Leer = kein zus&auml;tzliches Routing &mdash; mit CIDR wird diese Route an Clients gepusht</div>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary" style="margin-top:1.25rem">VPN erstellen</button>
     </form>
   </div>
 
-  <!-- Progress -->
+  <!-- ── Progress ── -->
   <div id="progressSection" class="card hidden">
     <div class="steps">
       <div class="step" id="s1">PKI</div>
       <div class="step" id="s2">Zertifikate</div>
-      <div class="step" id="s3">Konfiguration</div>
+      <div class="step" id="s3">Clients</div>
       <div class="step" id="s4">Fertig</div>
     </div>
     <div class="progress-bar">
@@ -84,25 +107,14 @@
     <p id="progressMsg" class="dim"></p>
   </div>
 
-  <!-- Result -->
+  <!-- ── Result ── -->
   <div id="resultSection" class="card hidden">
     <h2 class="success-head">&#10003; VPN-Konfiguration bereit</h2>
 
-    <div class="cred-box">
-      <h3>VPN-Zugangsdaten</h3>
-      <div class="cred-row">
-        <span class="cred-label">Benutzername</span>
-        <code id="username"></code>
-        <button class="copy-btn" onclick="copyText('username', this)">Kopieren</button>
-      </div>
-      <div class="cred-row">
-        <span class="cred-label">Passwort</span>
-        <code id="password"></code>
-        <button class="copy-btn" onclick="copyText('password', this)">Kopieren</button>
-      </div>
-    </div>
+    <!-- Per-client cards injected here -->
+    <div id="clientResults"></div>
 
-    <h3>Downloads</h3>
+    <h3 style="margin-top:1.5rem">Gesamt-Downloads</h3>
     <div class="dl-grid">
       <div class="dl-card">
         <div class="dl-icon">&#128421;</div>
@@ -113,27 +125,19 @@
         <a id="lnkServerZip" class="btn-dl" download>ZIP</a>
       </div>
       <div class="dl-card">
-        <div class="dl-icon">&#128187;</div>
+        <div class="dl-icon">&#128228;</div>
         <div class="dl-info">
-          <strong>Client-Paket</strong>
-          <small>.ovpn + Zugangsdaten</small>
+          <strong>Alle Clients</strong>
+          <small>Alle .ovpn-Dateien + Zugangsdaten</small>
         </div>
         <a id="lnkClientZip" class="btn-dl" download>ZIP</a>
-      </div>
-      <div class="dl-card">
-        <div class="dl-icon">&#128196;</div>
-        <div class="dl-info">
-          <strong>Client .ovpn</strong>
-          <small>Direktimport f&uuml;r OpenVPN-App</small>
-        </div>
-        <a id="lnkClientOvpn" class="btn-dl" download>OVPN</a>
       </div>
     </div>
 
     <button class="btn-secondary" onclick="location.reload()">Neues VPN erstellen</button>
   </div>
 
-  <!-- Error -->
+  <!-- ── Error ── -->
   <div id="errorSection" class="card error-card hidden">
     <h3 class="error-head">Fehler</h3>
     <pre id="errorMsg"></pre>
@@ -143,41 +147,83 @@
 </div>
 
 <script>
-let jobId = null;
+// ── Client list ───────────────────────────────────────────────────────────────
+let clientCount = 0;
 
+function addClient(name) {
+  clientCount++;
+  const val  = name || "client" + (clientCount > 1 ? clientCount : "");
+  const list = document.getElementById("clientList");
+  const row  = document.createElement("div");
+  row.className = "client-row";
+  row.innerHTML = `
+    <input type="text" name="clients[]" value="${val}"
+           pattern="[a-zA-Z0-9_-]+" required
+           title="Buchstaben, Zahlen, - und _ erlaubt"
+           placeholder="Client-Name">
+    <button type="button" class="btn-remove" onclick="removeClient(this)"
+            title="Entfernen">&#215;</button>
+  `;
+  list.appendChild(row);
+  updateRemoveButtons();
+}
+
+function removeClient(btn) {
+  btn.closest(".client-row").remove();
+  updateRemoveButtons();
+}
+
+function updateRemoveButtons() {
+  const rows = document.querySelectorAll(".client-row");
+  rows.forEach(r => {
+    r.querySelector(".btn-remove").disabled = rows.length === 1;
+  });
+}
+
+addClient("client");   // default single client on load
+
+// ── Advanced toggle ───────────────────────────────────────────────────────────
+let advOpen = false;
+
+function toggleAdvanced() {
+  advOpen = !advOpen;
+  document.getElementById("advSection").classList.toggle("open", advOpen);
+  document.getElementById("advArrow").textContent = advOpen ? "▲" : "▼";
+}
+
+// ── Copy helper ───────────────────────────────────────────────────────────────
 function copyText(id, btn) {
   navigator.clipboard.writeText(document.getElementById(id).textContent).then(() => {
     const orig = btn.textContent;
-    btn.textContent = "Kopiert!";
+    btn.textContent = "✓";
     setTimeout(() => { btn.textContent = orig; }, 1500);
   });
 }
 
+// ── Form submit ───────────────────────────────────────────────────────────────
+let jobId = null;
+
 document.getElementById("vpnForm").onsubmit = async (e) => {
   e.preventDefault();
-  show("progressSection");
   hide("formSection");
+  show("progressSection");
 
-  const res = await fetch("/create", { method: "POST", body: new FormData(e.target) });
+  const res  = await fetch("/create", { method: "POST", body: new FormData(e.target) });
   const data = await res.json();
-
   if (data.error) { showError(data.error); return; }
   jobId = data.job_id;
   poll();
 };
 
+// ── Polling ───────────────────────────────────────────────────────────────────
 async function poll() {
-  let res, d;
+  let d;
   try {
-    res = await fetch("/status/" + jobId);
-    d = await res.json();
-  } catch (err) {
-    setTimeout(poll, 1000);
-    return;
-  }
+    d = await (await fetch("/status/" + jobId)).json();
+  } catch { setTimeout(poll, 1000); return; }
 
   document.getElementById("progressFill").style.width = d.progress + "%";
-  document.getElementById("progressMsg").textContent = d.message;
+  document.getElementById("progressMsg").textContent  = d.message;
   updateSteps(d.progress);
 
   if (d.state === "done")  { showResult(d); return; }
@@ -186,23 +232,52 @@ async function poll() {
 }
 
 function updateSteps(p) {
-  const steps = [["s1",0],["s2",30],["s3",65],["s4",95]];
-  steps.forEach(([id, threshold], i) => {
-    const el = document.getElementById(id);
-    if (p >= threshold) el.classList.add("active");
-    const next = steps[i + 1];
+  [["s1",0],["s2",15],["s3",55],["s4",92]].forEach(([id, thr], i, arr) => {
+    const el   = document.getElementById(id);
+    const next = arr[i + 1];
+    if (p >= thr)        el.classList.add("active");
     if (!next || p >= next[1]) el.classList.add("done");
   });
 }
 
+// ── Result ────────────────────────────────────────────────────────────────────
 function showResult(d) {
   hide("progressSection");
   show("resultSection");
-  document.getElementById("username").textContent = d.username;
-  document.getElementById("password").textContent = d.password;
-  document.getElementById("lnkServerZip").href  = "/download/" + d.server_zip;
-  document.getElementById("lnkClientZip").href  = "/download/" + d.client_zip;
-  document.getElementById("lnkClientOvpn").href = "/download/" + d.client_ovpn;
+
+  const cr = document.getElementById("clientResults");
+  cr.innerHTML = "";
+
+  d.clients.forEach((c, i) => {
+    const uid = `u${i}`, pid = `p${i}`;
+    const credBlock = d.use_auth_pass ? `
+      <div class="cred-box" style="margin-top:.75rem">
+        <div class="cred-row">
+          <span class="cred-label">Benutzername</span>
+          <code id="${uid}">${c.username}</code>
+          <button class="copy-btn" onclick="copyText('${uid}',this)">Kopieren</button>
+        </div>
+        <div class="cred-row">
+          <span class="cred-label">Passwort</span>
+          <code id="${pid}">${c.password}</code>
+          <button class="copy-btn" onclick="copyText('${pid}',this)">Kopieren</button>
+        </div>
+      </div>` : "";
+
+    const card = document.createElement("div");
+    card.className = "client-result-card";
+    card.innerHTML = `
+      <div class="client-result-head">
+        <span class="client-result-name">&#128187; ${c.name}</span>
+        <a href="/download/${c.ovpn}" class="btn-dl" download>.ovpn</a>
+      </div>
+      ${credBlock}
+    `;
+    cr.appendChild(card);
+  });
+
+  document.getElementById("lnkServerZip").href = "/download/" + d.server_zip;
+  document.getElementById("lnkClientZip").href = "/download/" + d.client_zip;
 }
 
 function showError(msg) {

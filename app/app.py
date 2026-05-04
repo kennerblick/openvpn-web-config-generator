@@ -91,18 +91,27 @@ def validate_host(host: str) -> bool:
         return bool(re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$", host))
 
 
-def pki_env(pki_dir: Path, cn: str, cert_days: int) -> dict:
+def pki_env(pki_dir: Path, cert_days: int) -> dict:
+    """Base env — no EASYRSA_REQ_CN (conflicts with build-server/client-full)."""
     return {
         **os.environ,
         "EASYRSA_PKI": str(pki_dir),
         "EASYRSA_BATCH": "1",
-        "EASYRSA_REQ_CN": cn,
         "EASYRSA_CA_EXPIRE": str(cert_days * 3),
         "EASYRSA_CERT_EXPIRE": str(cert_days),
         "EASYRSA_KEY_SIZE": "2048",
         "EASYRSA_DIGEST": "sha512",
-        # RSA 2048 (default) – zuverlässiger als EC across Alpine easy-rsa versions
     }
+
+
+def write_vars(pki_dir: Path, cert_days: int) -> None:
+    """Write vars file that easy-rsa expects inside the PKI directory."""
+    (pki_dir / "vars").write_text(
+        f'set_var EASYRSA_KEY_SIZE    "2048"\n'
+        f'set_var EASYRSA_CA_EXPIRE   "{cert_days * 3}"\n'
+        f'set_var EASYRSA_CERT_EXPIRE "{cert_days}"\n'
+        f'set_var EASYRSA_DIGEST      "sha512"\n'
+    )
 
 
 def extract_first_cert(pem: str) -> str:
@@ -274,13 +283,16 @@ def generate_vpn(jid: str, server_ip: str, port: int, proto: str,
     # Do NOT pre-create pki_dir — let easyrsa init-pki create it
 
     try:
-        env = pki_env(pki_dir, f"ca-{jid[:8]}", cert_days)
+        env = pki_env(pki_dir, cert_days)
 
         set_status(status, 10, "Initialisiere PKI …")
         run([EASYRSA, "--batch", "init-pki"], env=env)
+        write_vars(pki_dir, cert_days)
 
         set_status(status, 20, "Erstelle CA …")
-        run([EASYRSA, "--batch", "build-ca", "nopass"], env=env)
+        # EASYRSA_REQ_CN only for build-ca; forbidden in build-server/client-full
+        ca_env = {**env, "EASYRSA_REQ_CN": f"ca-{jid[:8]}"}
+        run([EASYRSA, "--batch", "build-ca", "nopass"], env=ca_env)
         if not (pki_dir / "ca.crt").exists():
             raise RuntimeError("CA-Zertifikat nicht erstellt — easy-rsa Fehler")
 
@@ -290,14 +302,12 @@ def generate_vpn(jid: str, server_ip: str, port: int, proto: str,
         set_status(status, 55, "Erstelle TLS-Crypt-Schlüssel …")
         ta_key = str(pki_dir / "ta.key")
         try:
-            # OpenVPN 2.6+ syntax
-            run(["openvpn", "--genkey", "tls-crypt", ta_key])
+            run(["openvpn", "--genkey", "tls-crypt", ta_key])   # OpenVPN 2.6+
         except RuntimeError:
-            # OpenVPN 2.4/2.5 fallback
-            run(["openvpn", "--genkey", "--secret", ta_key])
+            run(["openvpn", "--genkey", "--secret", ta_key])    # OpenVPN 2.4/2.5
 
         set_status(status, 70, f"Erstelle Client-Zertifikat ({client_name}) …")
-        run([EASYRSA, "build-client-full", client_name, "nopass"], env=env)
+        run([EASYRSA, "--batch", "build-client-full", client_name, "nopass"], env=env)
 
         set_status(status, 82, "Generiere Zugangsdaten …")
         username = generate_username()

@@ -17,7 +17,7 @@ app = Flask(__name__)
 BASE_JOBS_DIR = Path("/app/jobs")
 BASE_JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
-EASYRSA = "/usr/share/easy-rsa/easyrsa"
+EASYRSA   = "/usr/share/easy-rsa/easyrsa"
 MAX_CLIENTS = 20
 
 JOBS: dict[str, dict] = {}
@@ -27,14 +27,10 @@ JOBS_LOCK = threading.Lock()
 
 def make_job() -> tuple[str, dict]:
     jid = f"job-{uuid.uuid4().hex[:8]}"
-    status = {
-        "state": "running",
-        "progress": 0,
-        "message": "Starte...",
-        "use_auth_pass": True,
-        "clients": [],
-        "server_zip": None,
-        "client_zip": None,
+    status: dict = {
+        "state": "running", "progress": 0, "message": "Starte...",
+        "use_auth_pass": True, "clients": [],
+        "server_zip": None, "client_zip": None,
     }
     with JOBS_LOCK:
         JOBS[jid] = status
@@ -43,7 +39,7 @@ def make_job() -> tuple[str, dict]:
 
 def set_status(status: dict, progress: int, message: str) -> None:
     status["progress"] = progress
-    status["message"] = message
+    status["message"]  = message
 
 
 def run(cmd: list, env: dict | None = None) -> subprocess.CompletedProcess:
@@ -61,31 +57,35 @@ def generate_password(length: int = 16) -> str:
     chars = string.ascii_letters + string.digits + "!@#$%&*-_+"
     while True:
         pwd = "".join(secrets.choice(chars) for _ in range(length))
-        if (
-            any(c.isupper() for c in pwd)
-            and any(c.islower() for c in pwd)
-            and any(c.isdigit() for c in pwd)
-            and any(c in "!@#$%&*-_+" for c in pwd)
-        ):
+        if (any(c.isupper() for c in pwd) and any(c.islower() for c in pwd)
+                and any(c.isdigit() for c in pwd)
+                and any(c in "!@#$%&*-_+" for c in pwd)):
             return pwd
 
 
 def generate_username() -> str:
-    adj = ["fast", "dark", "cold", "blue", "wild", "free", "stark", "calm"]
+    adj  = ["fast", "dark", "cold", "blue", "wild", "free", "stark", "calm"]
     noun = ["wolf", "hawk", "bear", "fox", "lynx", "crow", "pike", "oaks"]
-    num = secrets.randbelow(900) + 100
-    return f"{secrets.choice(adj)}{secrets.choice(noun)}{num}"
+    return f"{secrets.choice(adj)}{secrets.choice(noun)}{secrets.randbelow(900)+100}"
 
 
 def sanitize_client(name: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "", name)[:32]
-    return cleaned or "client"
+    return re.sub(r"[^a-zA-Z0-9_-]", "", name)[:32] or "client"
 
 
 def parse_network(cidr: str) -> tuple[str, str] | None:
     try:
         net = ipaddress.IPv4Network(cidr.strip(), strict=False)
         return str(net.network_address), str(net.netmask)
+    except ValueError:
+        return None
+
+
+def parse_vpn_subnet(cidr: str) -> tuple[str, str, str] | None:
+    """Returns (net_addr, netmask, cidr_str) – strict=True for clean subnets."""
+    try:
+        net = ipaddress.IPv4Network(cidr.strip(), strict=True)
+        return str(net.network_address), str(net.netmask), str(net)
     except ValueError:
         return None
 
@@ -98,15 +98,23 @@ def validate_host(host: str) -> bool:
         return bool(re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$", host))
 
 
+def validate_ip(ip: str) -> bool:
+    try:
+        ipaddress.ip_address(ip.strip())
+        return True
+    except ValueError:
+        return False
+
+
 def pki_env(pki_dir: Path, cert_days: int) -> dict:
     return {
         **os.environ,
-        "EASYRSA_PKI": str(pki_dir),
-        "EASYRSA_BATCH": "1",
-        "EASYRSA_CA_EXPIRE": str(cert_days * 3),
+        "EASYRSA_PKI":     str(pki_dir),
+        "EASYRSA_BATCH":   "1",
+        "EASYRSA_CA_EXPIRE":   str(cert_days * 3),
         "EASYRSA_CERT_EXPIRE": str(cert_days),
         "EASYRSA_KEY_SIZE": "2048",
-        "EASYRSA_DIGEST": "sha512",
+        "EASYRSA_DIGEST":  "sha512",
     }
 
 
@@ -120,67 +128,64 @@ def write_vars(pki_dir: Path, cert_days: int) -> None:
 
 
 def extract_first_cert(pem: str) -> str:
-    match = re.search(
-        r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
-        pem, re.DOTALL,
-    )
-    return match.group(1) if match else pem.strip()
+    m = re.search(r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)",
+                  pem, re.DOTALL)
+    return m.group(1) if m else pem.strip()
 
 
 # ── Config builders ───────────────────────────────────────────────────────────
 
 _CHECKPWD = """\
 #!/bin/sh
-# OpenVPN user/password verification — called via-env by OpenVPN
 PASSFILE="/etc/openvpn/userpass.txt"
-if grep -qxF "${username}:${password}" "$PASSFILE" 2>/dev/null; then
-    exit 0
-fi
+if grep -qxF "${username}:${password}" "$PASSFILE" 2>/dev/null; then exit 0; fi
 exit 1
 """
 
 
-def _readme(use_auth_pass: bool) -> str:
+def _readme(use_auth_pass: bool, vpn_cidr: str, use_crl: bool) -> str:
     auth_copy = (
         "   cp userpass.txt /etc/openvpn/\n"
-        "   cp checkpwd.sh  /etc/openvpn/\n"
-        "   chmod 700       /etc/openvpn/checkpwd.sh\n"
+        "   cp checkpwd.sh  /etc/openvpn/ && chmod 700 /etc/openvpn/checkpwd.sh\n"
         "   chmod 600       /etc/openvpn/userpass.txt\n"
         if use_auth_pass else ""
     )
-    return f"""\
-OpenVPN Server – Schnellstart
-==============================
-
-1. OpenVPN installieren
-   Ubuntu/Debian:  apt install openvpn
-   CentOS/RHEL:    dnf install openvpn
-   Alpine:         apk add openvpn
-
-2. Dateien nach /etc/openvpn/ kopieren
-   cp server.conf  /etc/openvpn/
-{auth_copy}
-3. IP-Forwarding aktivieren
-   echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf && sysctl -p
-
-4. NAT einrichten (eth0 ggf. anpassen)
-   iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
-
-5. OpenVPN starten
-   systemctl enable --now openvpn@server
-   # oder: openvpn --config /etc/openvpn/server.conf
-
-6. Firewall: UDP-Port (oder TCP) in der Firewall freigeben.
-
-Hinweis: user/group im server.conf sind auf nobody/nogroup gesetzt
-(Ubuntu/Debian). Auf Alpine: nobody/nobody.
-"""
+    crl_copy = "   cp crl.pem /etc/openvpn/\n" if use_crl else ""
+    crl_note = (
+        "\nZertifikat widerrufen:\n"
+        "   easyrsa revoke <clientname> && easyrsa gen-crl\n"
+        "   cp pki/crl.pem /etc/openvpn/crl.pem\n"
+        if use_crl else ""
+    )
+    return (
+        "OpenVPN Server – Schnellstart\n"
+        "==============================\n\n"
+        "1. OpenVPN installieren\n"
+        "   Ubuntu/Debian: apt install openvpn\n"
+        "   Alpine:        apk add openvpn\n\n"
+        "2. Dateien nach /etc/openvpn/ kopieren\n"
+        "   cp server.conf /etc/openvpn/\n"
+        + auth_copy + crl_copy +
+        "\n3. IP-Forwarding aktivieren\n"
+        "   echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf && sysctl -p\n\n"
+        "4. NAT (eth0 ggf. anpassen)\n"
+        f"   iptables -t nat -A POSTROUTING -s {vpn_cidr} -o eth0 -j MASQUERADE\n\n"
+        "5. OpenVPN starten\n"
+        "   systemctl enable --now openvpn@server\n\n"
+        "6. Firewall: VPN-Port freigeben.\n"
+        + crl_note
+    )
 
 
-def build_server_conf(server_ip, port, proto, pki_dir,
-                      target_net: tuple[str, str] | None = None,
-                      redirect_gw: bool = True,
-                      use_auth_pass: bool = True) -> str:
+def build_server_conf(
+    server_ip, port, proto, pki_dir,
+    target_net=None, redirect_gw=True, use_auth_pass=True,
+    dns1="8.8.8.8", dns2="1.1.1.1",
+    vpn_net="10.8.0.0", vpn_mask="255.255.255.0",
+    client_to_client=False, max_clients=0, duplicate_cn=False,
+    keepalive_ping=10, keepalive_timeout=120,
+    compress=None, use_crl=False,
+) -> str:
     ca   = (pki_dir / "ca.crt").read_text().strip()
     cert = extract_first_cert((pki_dir / "issued" / "server.crt").read_text())
     key  = (pki_dir / "private" / "server.key").read_text().strip()
@@ -188,21 +193,26 @@ def build_server_conf(server_ip, port, proto, pki_dir,
 
     exit_notify = "explicit-exit-notify 1" if proto == "udp" else ""
 
-    routing_lines: list[str] = []
+    routing: list[str] = []
     if redirect_gw:
-        routing_lines += [
-            'push "redirect-gateway def1 bypass-dhcp"',
-            'push "dhcp-option DNS 8.8.8.8"',
-            'push "dhcp-option DNS 1.1.1.1"',
-        ]
+        routing.append('push "redirect-gateway def1 bypass-dhcp"')
+        if dns1: routing.append(f'push "dhcp-option DNS {dns1}"')
+        if dns2: routing.append(f'push "dhcp-option DNS {dns2}"')
     if target_net:
-        net_addr, net_mask = target_net
-        routing_lines.append(f'push "route {net_addr} {net_mask}"')
-    routing = "\n".join(routing_lines) if routing_lines else "# kein Routing konfiguriert"
+        routing.append(f'push "route {target_net[0]} {target_net[1]}"')
+    routing_block = "\n".join(routing) if routing else "# kein Routing konfiguriert"
+
+    extras: list[str] = []
+    if client_to_client:  extras.append("client-to-client")
+    if max_clients > 0:   extras.append(f"max-clients {max_clients}")
+    if duplicate_cn:      extras.append("duplicate-cn")
+    if use_crl:           extras.append("crl-verify /etc/openvpn/crl.pem")
+    if compress and compress != "none":
+        extras += [f"compress {compress}", f'push "compress {compress}"']
+    extras_block = "\n".join(extras)
 
     auth_block = (
-        "auth-user-pass-verify /etc/openvpn/checkpwd.sh via-env\n"
-        "script-security 2\n"
+        "auth-user-pass-verify /etc/openvpn/checkpwd.sh via-env\nscript-security 2"
         if use_auth_pass else ""
     )
 
@@ -220,17 +230,20 @@ auth SHA512
 tls-version-min 1.2
 tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
 
-server 10.8.0.0 255.255.255.0
-{routing}
+server {vpn_net} {vpn_mask}
+{routing_block}
 
-keepalive 10 120
+keepalive {keepalive_ping} {keepalive_timeout}
 persist-key
 persist-tun
 
 user nobody
 group nogroup
 
+{extras_block}
+
 {auth_block}
+
 status /var/log/openvpn-status.log
 log-append /var/log/openvpn.log
 verb 3
@@ -252,7 +265,8 @@ verb 3
 
 
 def build_client_ovpn(server_ip, port, proto, pki_dir,
-                      client_name: str, use_auth_pass: bool = True) -> str:
+                      client_name: str, use_auth_pass=True,
+                      compress=None) -> str:
     ca   = (pki_dir / "ca.crt").read_text().strip()
     cert = extract_first_cert(
         (pki_dir / "issued" / f"{client_name}.crt").read_text()
@@ -262,6 +276,7 @@ def build_client_ovpn(server_ip, port, proto, pki_dir,
 
     exit_notify  = "explicit-exit-notify 1" if proto == "udp" else ""
     auth_line    = "auth-user-pass" if use_auth_pass else ""
+    compress_line = f"compress {compress}" if (compress and compress != "none") else ""
 
     return f"""\
 # Generated by OpenVPN Web Config Generator
@@ -282,6 +297,7 @@ tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
 remote-cert-tls server
 
 {auth_line}
+{compress_line}
 verb 3
 {exit_notify}
 
@@ -302,11 +318,16 @@ verb 3
 
 # ── Generation worker ─────────────────────────────────────────────────────────
 
-def generate_vpn(jid: str, server_ip: str, port: int, proto: str,
-                 clients: list[str], cert_days: int,
-                 target_net: tuple[str, str] | None = None,
-                 redirect_gw: bool = True,
-                 use_auth_pass: bool = True) -> None:
+def generate_vpn(
+    jid: str, server_ip: str, port: int, proto: str,
+    clients: list[str], cert_days: int,
+    target_net=None, redirect_gw=True, use_auth_pass=True,
+    dns1="8.8.8.8", dns2="1.1.1.1",
+    vpn_net="10.8.0.0", vpn_mask="255.255.255.0", vpn_cidr="10.8.0.0/24",
+    client_to_client=False, max_clients=0, duplicate_cn=False,
+    keepalive_ping=10, keepalive_timeout=120,
+    compress=None, use_crl=False,
+) -> None:
     status  = JOBS[jid]
     job_dir = BASE_JOBS_DIR / jid
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -315,7 +336,7 @@ def generate_vpn(jid: str, server_ip: str, port: int, proto: str,
     try:
         env = pki_env(pki_dir, cert_days)
 
-        set_status(status, 5, "Initialisiere PKI …")
+        set_status(status, 5,  "Initialisiere PKI …")
         run([EASYRSA, "--batch", "init-pki"], env=env)
         write_vars(pki_dir, cert_days)
 
@@ -323,12 +344,12 @@ def generate_vpn(jid: str, server_ip: str, port: int, proto: str,
         ca_env = {**env, "EASYRSA_REQ_CN": f"ca-{jid[:8]}"}
         run([EASYRSA, "--batch", "build-ca", "nopass"], env=ca_env)
         if not (pki_dir / "ca.crt").exists():
-            raise RuntimeError("CA-Zertifikat nicht erstellt — easy-rsa Fehler")
+            raise RuntimeError("CA-Zertifikat nicht erstellt")
 
-        set_status(status, 30, "Erstelle Server-Zertifikat …")
+        set_status(status, 28, "Erstelle Server-Zertifikat …")
         run([EASYRSA, "--batch", "build-server-full", "server", "nopass"], env=env)
 
-        set_status(status, 45, "Erstelle TLS-Crypt-Schlüssel …")
+        set_status(status, 40, "Erstelle TLS-Crypt-Schlüssel …")
         ta_key = str(pki_dir / "ta.key")
         try:
             run(["openvpn", "--genkey", "tls-crypt", ta_key])
@@ -339,68 +360,78 @@ def generate_vpn(jid: str, server_ip: str, port: int, proto: str,
         client_results: list[dict] = []
         n = len(clients)
         for i, name in enumerate(clients):
-            pct = 55 + int(i / n * 25)
-            set_status(status, pct, f"Client-Zertifikat '{name}' ({i+1}/{n}) …")
+            pct = 50 + int(i / n * 30)
+            set_status(status, pct, f"Client '{name}' ({i+1}/{n}) …")
             run([EASYRSA, "--batch", "build-client-full", name, "nopass"], env=env)
-            username = generate_username() if use_auth_pass else None
-            password = generate_password() if use_auth_pass else None
             client_results.append({
                 "name":     name,
-                "username": username,
-                "password": password,
+                "username": generate_username() if use_auth_pass else None,
+                "password": generate_password() if use_auth_pass else None,
                 "ovpn":     f"{jid}/{name}.ovpn",
             })
 
-        # ── Build configs ─────────────────────────────────────────────────────
-        set_status(status, 82, "Erzeuge Konfigurationsdateien …")
+        # ── CRL ───────────────────────────────────────────────────────────────
+        if use_crl:
+            set_status(status, 82, "Erstelle CRL …")
+            run([EASYRSA, "--batch", "gen-crl"], env=env)
+
+        # ── Configs ───────────────────────────────────────────────────────────
+        set_status(status, 86, "Erzeuge Konfigurationsdateien …")
         server_conf = build_server_conf(
             server_ip, port, proto, pki_dir,
             target_net, redirect_gw, use_auth_pass,
+            dns1, dns2, vpn_net, vpn_mask,
+            client_to_client, max_clients, duplicate_cn,
+            keepalive_ping, keepalive_timeout,
+            compress, use_crl,
         )
 
-        ovpn_contents: dict[str, str] = {}
+        ovpn_map: dict[str, str] = {}
         for cr in client_results:
             ovpn = build_client_ovpn(
-                server_ip, port, proto, pki_dir, cr["name"], use_auth_pass
+                server_ip, port, proto, pki_dir,
+                cr["name"], use_auth_pass, compress,
             )
             (job_dir / f"{cr['name']}.ovpn").write_text(ovpn)
-            ovpn_contents[cr["name"]] = ovpn
+            ovpn_map[cr["name"]] = ovpn
 
         # ── Server ZIP ────────────────────────────────────────────────────────
-        set_status(status, 92, "Packe Archive …")
-        server_zip_path = job_dir / "server-bundle.zip"
-        with zipfile.ZipFile(server_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        set_status(status, 93, "Packe Archive …")
+        server_zip = job_dir / "server-bundle.zip"
+        with zipfile.ZipFile(server_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("server.conf", server_conf)
             if use_auth_pass:
-                userpass = "".join(
-                    f"{cr['username']}:{cr['password']}\n" for cr in client_results
-                )
+                userpass = "".join(f"{c['username']}:{c['password']}\n"
+                                   for c in client_results)
                 zf.writestr("userpass.txt", userpass)
                 zf.writestr("checkpwd.sh", _CHECKPWD)
-            zf.writestr("README.txt", _readme(use_auth_pass))
+            if use_crl:
+                crl_path = pki_dir / "crl.pem"
+                if crl_path.exists():
+                    zf.writestr("crl.pem", crl_path.read_text())
+            zf.writestr("README.txt", _readme(use_auth_pass, vpn_cidr, use_crl))
 
-        # ── Client ZIP (all clients) ───────────────────────────────────────────
-        client_zip_path = job_dir / "alle-clients.zip"
-        with zipfile.ZipFile(client_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # ── All-clients ZIP ───────────────────────────────────────────────────
+        client_zip = job_dir / "alle-clients.zip"
+        with zipfile.ZipFile(client_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             for cr in client_results:
-                zf.writestr(f"{cr['name']}.ovpn", ovpn_contents[cr["name"]])
+                zf.writestr(f"{cr['name']}.ovpn", ovpn_map[cr["name"]])
             if use_auth_pass:
                 creds = "".join(
-                    f"Client:       {cr['name']}\n"
-                    f"Benutzername: {cr['username']}\n"
-                    f"Passwort:     {cr['password']}\n\n"
-                    for cr in client_results
+                    f"Client:       {c['name']}\n"
+                    f"Benutzername: {c['username']}\n"
+                    f"Passwort:     {c['password']}\n\n"
+                    for c in client_results
                 )
                 zf.writestr("zugangsdaten.txt", creds)
 
         status.update({
-            "state":        "done",
-            "progress":     100,
-            "message":      "VPN-Konfiguration bereit!",
+            "state": "done", "progress": 100,
+            "message": "VPN-Konfiguration bereit!",
             "use_auth_pass": use_auth_pass,
-            "clients":      client_results,
-            "server_zip":   f"{jid}/server-bundle.zip",
-            "client_zip":   f"{jid}/alle-clients.zip",
+            "clients":    client_results,
+            "server_zip": f"{jid}/server-bundle.zip",
+            "client_zip": f"{jid}/alle-clients.zip",
         })
 
     except Exception as exc:
@@ -416,51 +447,94 @@ def index():
 
 @app.route("/create", methods=["POST"])
 def create():
-    server_ip    = request.form.get("server_ip", "").strip()
-    port_raw     = request.form.get("port", "1194").strip()
-    proto        = request.form.get("proto", "udp").strip()
-    days_raw     = request.form.get("days", "365").strip()
-    target_net_raw = request.form.get("target_net", "").strip()
-    redirect_gw  = request.form.get("redirect_gw") == "on"
-    use_auth_pass = request.form.get("use_auth_pass") == "on"
+    f = request.form
 
-    # Clients: list from form, deduplicated, max MAX_CLIENTS
-    raw_clients = request.form.getlist("clients[]")
+    server_ip = f.get("server_ip", "").strip()
+    port_raw  = f.get("port", "1194").strip()
+    proto     = f.get("proto", "udp").strip()
+    days_raw  = f.get("days", "365").strip()
+
+    # Clients
     clients = list(dict.fromkeys(
-        sanitize_client(c) for c in raw_clients if c.strip()
-    ))[:MAX_CLIENTS]
-    if not clients:
-        clients = ["client"]
+        sanitize_client(c) for c in f.getlist("clients[]") if c.strip()
+    ))[:MAX_CLIENTS] or ["client"]
 
+    # Toggles
+    redirect_gw   = f.get("redirect_gw")   == "on"
+    use_auth_pass = f.get("use_auth_pass")  == "on"
+    client_to_client = f.get("client_to_client") == "on"
+    duplicate_cn     = f.get("duplicate_cn")     == "on"
+    use_crl          = f.get("use_crl")          == "on"
+
+    # DNS
+    dns1 = f.get("dns1", "8.8.8.8").strip() or "8.8.8.8"
+    dns2 = f.get("dns2", "1.1.1.1").strip()
+
+    # VPN subnet
+    vpn_subnet_raw = f.get("vpn_subnet", "10.8.0.0/24").strip() or "10.8.0.0/24"
+
+    # Numeric fields
+    target_net_raw      = f.get("target_net", "").strip()
+    max_clients_raw     = f.get("max_clients", "0").strip()
+    keepalive_ping_raw  = f.get("keepalive_ping",    "10").strip()
+    keepalive_timeout_raw = f.get("keepalive_timeout", "120").strip()
+    compress = f.get("compress", "none").strip()
+
+    # ── Validation ───────────────────────────────────────────────────────────
     if not validate_host(server_ip):
         return jsonify({"error": "Ungültige Server-IP oder Hostname"}), 400
 
     try:
-        port = int(port_raw)
-        assert 1 <= port <= 65535
-    except (ValueError, AssertionError):
+        port = int(port_raw); assert 1 <= port <= 65535
+    except Exception:
         return jsonify({"error": "Port muss zwischen 1 und 65535 liegen"}), 400
 
     if proto not in ("udp", "tcp"):
         return jsonify({"error": "Protokoll muss udp oder tcp sein"}), 400
 
     try:
-        cert_days = int(days_raw)
-        assert 1 <= cert_days <= 3650
-    except (ValueError, AssertionError):
+        cert_days = int(days_raw); assert 1 <= cert_days <= 3650
+    except Exception:
         return jsonify({"error": "Gültigkeit: 1–3650 Tage"}), 400
 
     target_net = None
     if target_net_raw:
         target_net = parse_network(target_net_raw)
         if target_net is None:
-            return jsonify({"error": f"Ungültiges Zielnetz '{target_net_raw}' — erwartet z.B. 192.168.10.0/24"}), 400
+            return jsonify({"error": f"Ungültiges Zielnetz '{target_net_raw}'"}), 400
+
+    vpn_sub = parse_vpn_subnet(vpn_subnet_raw)
+    if vpn_sub is None:
+        return jsonify({"error": f"Ungültiges VPN-Subnetz '{vpn_subnet_raw}' — z.B. 10.8.0.0/24"}), 400
+    vpn_net, vpn_mask, vpn_cidr = vpn_sub
+
+    for ip, label in [(dns1, "DNS 1"), (dns2, "DNS 2")]:
+        if ip and not validate_ip(ip):
+            return jsonify({"error": f"Ungültige IP für {label}: '{ip}'"}), 400
+
+    try:
+        max_cl = int(max_clients_raw or 0); assert 0 <= max_cl <= 1000
+    except Exception:
+        return jsonify({"error": "Max. Verbindungen: 0–1000 (0 = unbegrenzt)"}), 400
+
+    try:
+        kp = int(keepalive_ping_raw   or 10)
+        kt = int(keepalive_timeout_raw or 120)
+        assert 1 <= kp <= 300 and kp < kt <= 3600
+    except Exception:
+        return jsonify({"error": "Keepalive: Ping 1–300 s, Timeout muss größer als Ping sein"}), 400
+
+    if compress not in ("none", "lz4-v2"):
+        compress = "none"
 
     jid, _ = make_job()
     threading.Thread(
         target=generate_vpn,
         args=(jid, server_ip, port, proto, clients, cert_days,
-              target_net, redirect_gw, use_auth_pass),
+              target_net, redirect_gw, use_auth_pass,
+              dns1, dns2, vpn_net, vpn_mask, vpn_cidr,
+              client_to_client, max_cl, duplicate_cn,
+              kp, kt, compress, use_crl),
         daemon=True,
     ).start()
 

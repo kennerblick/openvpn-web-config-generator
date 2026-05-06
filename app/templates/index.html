@@ -67,11 +67,11 @@
           <div class="adv-group-title">Authentifizierung</div>
           <label class="toggle-row">
             <span class="toggle-wrap">
-              <input type="checkbox" name="use_auth_pass" checked>
+              <input type="checkbox" name="encrypt_key" checked>
               <span class="toggle-slider"></span>
             </span>
-            Passwort-Authentifizierung
-            <span class="opt">(Benutzername + Passwort pro Client)</span>
+            Schlüssel-Passwort
+            <span class="opt">(privater Schlüssel des Clients mit Passwort verschlüsseln)</span>
           </label>
         </div>
 
@@ -337,16 +337,11 @@ function showResult(d) {
   cr.innerHTML = "";
 
   d.clients.forEach((c, i) => {
-    const uid = `u${i}`, pid = `p${i}`;
-    const credHtml = d.use_auth_pass ? `
+    const pid = `p${i}`;
+    const credHtml = d.encrypt_key ? `
       <div class="cred-box" style="margin-top:.75rem">
         <div class="cred-row">
-          <span class="cred-label">Benutzername</span>
-          <code id="${uid}">${c.username}</code>
-          <button class="copy-btn" onclick="copyText('${uid}',this)">Kopieren</button>
-        </div>
-        <div class="cred-row">
-          <span class="cred-label">Passwort</span>
+          <span class="cred-label">Schlüssel-Passwort</span>
           <code id="${pid}">${c.password}</code>
           <button class="copy-btn" onclick="copyText('${pid}',this)">Kopieren</button>
         </div>

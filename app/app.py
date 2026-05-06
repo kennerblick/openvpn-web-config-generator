@@ -205,6 +205,7 @@ auth SHA512
 tls-version-min 1.2
 tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
 
+topology subnet
 server {vpn_net} {vpn_mask}
 {routing_block}
 
@@ -217,8 +218,8 @@ group nogroup
 
 {extras_block}
 
-status /var/log/openvpn-status.log
-log-append /var/log/openvpn.log
+status openvpn-status.log
+log-append openvpn.log
 verb 3
 {exit_notify}
 

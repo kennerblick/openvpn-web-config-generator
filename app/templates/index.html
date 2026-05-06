@@ -51,6 +51,26 @@
         </div>
       </div>
 
+      <!-- Betriebssystem -->
+      <div class="grid-2">
+        <div class="field">
+          <label>Server-Betriebssystem</label>
+          <select name="server_os">
+            <option value="linux" selected>Linux (Ubuntu, Debian, Alpine …)</option>
+            <option value="windows">Windows</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Client-Betriebssystem</label>
+          <select name="client_os">
+            <option value="linux" selected>Linux</option>
+            <option value="windows">Windows</option>
+            <option value="android">Android / iOS</option>
+            <option value="macos">macOS (Tunnelblick)</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Clients -->
       <div class="section-label">Clients</div>
       <div id="clientList" class="client-list"></div>

@@ -186,6 +186,76 @@ def _readme(vpn_cidr: str, use_crl: bool, server_os: str = "linux") -> str:
     )
 
 
+def _client_readme(name: str, client_os: str, encrypt_key: bool, password: str | None) -> str:
+    pwd_section = (
+        f"\n3. Schlüssel-Passwort\n"
+        f"   Bei der Verbindung wird das Passwort für den privaten Schlüssel abgefragt.\n"
+        f"   Passwort: {password}\n"
+        if (encrypt_key and password) else ""
+    )
+    next_step = 4 if (encrypt_key and password) else 3
+
+    if client_os == "windows":
+        return (
+            f"OpenVPN Client – Installation (Windows)\n"
+            f"========================================\n\n"
+            f"1. OpenVPN GUI installieren\n"
+            f"   https://openvpn.net/community-downloads/\n\n"
+            f"2. Konfiguration importieren\n"
+            f"   {name}.ovpn doppelklicken\n"
+            f"   Oder: OpenVPN GUI → Datei → Profil importieren\n"
+            + pwd_section +
+            f"\n{next_step}. Verbinden\n"
+            f"   OpenVPN GUI in der Taskleiste → Verbinden\n"
+        )
+
+    if client_os == "android":
+        return (
+            f"OpenVPN Client – Installation (Android / iOS)\n"
+            f"==============================================\n\n"
+            f"1. App installieren\n"
+            f"   Android: „OpenVPN for Android" oder „OpenVPN Connect" (Play Store)\n"
+            f"   iOS:     „OpenVPN Connect" (App Store)\n\n"
+            f"2. Profil importieren\n"
+            f"   {name}.ovpn per E-Mail, AirDrop oder QR-Code übertragen\n"
+            f"   In der App öffnen → Importieren\n"
+            + pwd_section +
+            f"\n{next_step}. Verbinden\n"
+            f"   App öffnen → Profil auswählen → Verbinden\n"
+        )
+
+    if client_os == "macos":
+        return (
+            f"OpenVPN Client – Installation (macOS)\n"
+            f"======================================\n\n"
+            f"1. Tunnelblick oder OpenVPN Connect installieren\n"
+            f"   Tunnelblick:     https://tunnelblick.net/\n"
+            f"   OpenVPN Connect: App Store\n\n"
+            f"2. Konfiguration importieren\n"
+            f"   {name}.ovpn doppelklicken – Tunnelblick öffnet automatisch\n"
+            + pwd_section +
+            f"\n{next_step}. Verbinden\n"
+            f"   Tunnelblick-Symbol in der Menüleiste → {name} → Verbinden\n"
+        )
+
+    # linux (default)
+    return (
+        f"OpenVPN Client – Installation (Linux)\n"
+        f"======================================\n\n"
+        f"1. OpenVPN installieren\n"
+        f"   Ubuntu/Debian: apt install openvpn\n"
+        f"   Alpine:        apk add openvpn\n\n"
+        f"2. Konfiguration importieren\n"
+        f"   cp {name}.ovpn /etc/openvpn/client.conf\n"
+        f"   Oder mit NetworkManager:\n"
+        f"   nmcli connection import type openvpn file {name}.ovpn\n"
+        + pwd_section +
+        f"\n{next_step}. Verbinden\n"
+        f"   systemctl start openvpn@client\n"
+        f"   Oder: nmcli connection up {name}\n"
+    )
+
+
 def build_server_conf(
     server_ip, port, proto, pki_dir,
     target_net=None, redirect_gw=True,
@@ -334,8 +404,10 @@ def generate_vpn(
     client_to_client=False, max_clients=0, duplicate_cn=False,
     keepalive_ping=10, keepalive_timeout=120,
     compress=None, use_crl=False,
-    server_os="linux", client_os="linux",
+    server_os="linux", client_oses=None,
 ) -> None:
+    if client_oses is None:
+        client_oses = ["linux"] * len(clients)
     status  = JOBS[jid]
     job_dir = BASE_JOBS_DIR / jid
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -368,6 +440,7 @@ def generate_vpn(
         client_results: list[dict] = []
         n = len(clients)
         for i, name in enumerate(clients):
+            cos = client_oses[i] if i < len(client_oses) else "linux"
             pct = 50 + int(i / n * 30)
             set_status(status, pct, f"Client '{name}' ({i+1}/{n}) …")
             if encrypt_key:
@@ -377,10 +450,16 @@ def generate_vpn(
             else:
                 password = None
                 run([EASYRSA, "--batch", "build-client-full", name, "nopass"], env=env)
+            readme_file = f"{name}_install_readme.txt"
+            (job_dir / readme_file).write_text(
+                _client_readme(name, cos, encrypt_key, password)
+            )
             client_results.append({
                 "name":     name,
                 "password": password,
                 "ovpn":     f"{jid}/{name}.ovpn",
+                "readme":   f"{jid}/{readme_file}",
+                "os":       cos,
             })
 
         # ── CRL ───────────────────────────────────────────────────────────────
@@ -403,7 +482,7 @@ def generate_vpn(
         for cr in client_results:
             ovpn = build_client_ovpn(
                 server_ip, port, proto, pki_dir,
-                cr["name"], compress, client_os,
+                cr["name"], compress, cr["os"],
             )
             (job_dir / f"{cr['name']}.ovpn").write_text(ovpn)
             ovpn_map[cr["name"]] = ovpn
@@ -411,7 +490,7 @@ def generate_vpn(
         # ── Server files ──────────────────────────────────────────────────────
         set_status(status, 93, "Packe Archive …")
         (job_dir / "server.ovpn").write_text(server_conf)
-        (job_dir / "README.txt").write_text(_readme(vpn_cidr, use_crl, server_os))
+        (job_dir / "install_readme.txt").write_text(_readme(vpn_cidr, use_crl, server_os))
         server_crl_key = None
         if use_crl:
             crl_src = pki_dir / "crl.pem"
@@ -424,6 +503,9 @@ def generate_vpn(
         with zipfile.ZipFile(client_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             for cr in client_results:
                 zf.writestr(f"{cr['name']}.ovpn", ovpn_map[cr["name"]])
+                readme_path = job_dir / f"{cr['name']}_install_readme.txt"
+                if readme_path.exists():
+                    zf.write(readme_path, f"{cr['name']}_install_readme.txt")
             if encrypt_key:
                 creds = "".join(
                     f"Client:             {c['name']}\n"
@@ -438,7 +520,7 @@ def generate_vpn(
             "encrypt_key":   encrypt_key,
             "clients":       client_results,
             "server_ovpn":   f"{jid}/server.ovpn",
-            "server_readme": f"{jid}/README.txt",
+            "server_readme": f"{jid}/install_readme.txt",
             "server_crl":    server_crl_key,
             "client_zip":    f"{jid}/alle-clients.zip",
         })
@@ -540,9 +622,14 @@ def create():
     if server_os not in ("linux", "windows"):
         server_os = "linux"
 
-    client_os = f.get("client_os", "linux").strip()
-    if client_os not in ("linux", "windows", "android", "ios", "macos"):
-        client_os = "linux"
+    _valid_os = {"linux", "windows", "android", "macos"}
+    client_oses = [
+        cos if (cos := v.strip()) in _valid_os else "linux"
+        for v in f.getlist("client_os[]")
+    ]
+    while len(client_oses) < len(clients):
+        client_oses.append("linux")
+    client_oses = client_oses[:len(clients)]
 
     jid, _ = make_job()
     threading.Thread(
@@ -551,7 +638,7 @@ def create():
               target_net, redirect_gw, encrypt_key,
               dns1, dns2, vpn_net, vpn_mask, vpn_cidr,
               client_to_client, max_cl, duplicate_cn,
-              kp, kt, compress, use_crl, server_os, client_os),
+              kp, kt, compress, use_crl, server_os, client_oses),
         daemon=True,
     ).start()
 

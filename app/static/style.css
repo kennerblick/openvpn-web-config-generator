@@ -87,6 +87,15 @@ input[type="range"] { width: 100%; accent-color: var(--primary); margin-top: .2r
 }
 .client-row input:focus { border-color: var(--primary); }
 
+.client-os {
+  flex: 0 0 auto; width: auto;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--dim);
+  padding: .5rem .55rem; font-size: .78rem;
+  outline: none; transition: border-color .2s;
+}
+.client-os:focus { border-color: var(--primary); }
+
 .btn-remove {
   width: 30px; height: 30px; flex-shrink: 0;
   background: transparent; border: 1px solid var(--border);

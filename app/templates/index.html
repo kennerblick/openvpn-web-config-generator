@@ -51,24 +51,13 @@
         </div>
       </div>
 
-      <!-- Betriebssystem -->
-      <div class="grid-2">
-        <div class="field">
-          <label>Server-Betriebssystem</label>
-          <select name="server_os">
-            <option value="linux" selected>Linux (Ubuntu, Debian, Alpine …)</option>
-            <option value="windows">Windows</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Client-Betriebssystem</label>
-          <select name="client_os">
-            <option value="linux" selected>Linux</option>
-            <option value="windows">Windows</option>
-            <option value="android">Android / iOS</option>
-            <option value="macos">macOS (Tunnelblick)</option>
-          </select>
-        </div>
+      <!-- Server-Betriebssystem -->
+      <div class="field" style="margin-bottom:1rem">
+        <label>Server-Betriebssystem</label>
+        <select name="server_os">
+          <option value="linux" selected>Linux (Ubuntu, Debian, Alpine …)</option>
+          <option value="windows">Windows</option>
+        </select>
       </div>
 
       <!-- Clients -->
@@ -99,7 +88,7 @@
           <div class="adv-group-title">Routing</div>
           <label class="toggle-row" style="margin-bottom:.75rem">
             <span class="toggle-wrap">
-              <input type="checkbox" name="redirect_gw" checked>
+              <input type="checkbox" name="redirect_gw">
               <span class="toggle-slider"></span>
             </span>
             Default-Gateway &uuml;ber VPN
@@ -257,14 +246,26 @@ updateExpiry(365);
 // ── Client list ───────────────────────────────────────────────────────────────
 let clientSeq = 0;
 
-function addClient(name) {
+const OS_OPTIONS = [
+  ["linux",   "Linux"],
+  ["windows", "Windows"],
+  ["android", "Android / iOS"],
+  ["macos",   "macOS"],
+];
+
+function addClient(name, os) {
   clientSeq++;
-  const val  = name || (clientSeq === 1 ? "client" : "client" + clientSeq);
-  const row  = document.createElement("div");
+  const val     = name || (clientSeq === 1 ? "client" : "client" + clientSeq);
+  const selOs   = os || "linux";
+  const opts    = OS_OPTIONS.map(([v, l]) =>
+    `<option value="${v}"${v === selOs ? " selected" : ""}>${l}</option>`
+  ).join("");
+  const row = document.createElement("div");
   row.className = "client-row";
   row.innerHTML =
     `<input type="text" name="clients[]" value="${val}" required
             pattern="[a-zA-Z0-9_-]+" title="Buchstaben, Zahlen, -, _">` +
+    `<select name="client_os[]" class="client-os">${opts}</select>` +
     `<button type="button" class="btn-remove" onclick="removeClient(this)">&#215;</button>`;
   document.getElementById("clientList").appendChild(row);
   updateRemoveBtns();
@@ -369,6 +370,7 @@ function showResult(d) {
         <span class="client-result-name">&#128187; ${c.name}</span>
         <div class="client-result-actions">
           <button class="btn-qr" onclick="toggleQR('${c.name}','${c.ovpn}',this)">QR</button>
+          <a href="/download/${c.readme}" class="btn-qr" download>README</a>
           <a href="/download/${c.ovpn}" class="btn-dl" download>.ovpn</a>
         </div>
       </div>

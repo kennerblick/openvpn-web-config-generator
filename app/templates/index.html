@@ -217,16 +217,11 @@
     <h2 class="success-head">&#10003; VPN-Konfiguration bereit</h2>
     <div id="clientResults"></div>
 
-    <h3 style="margin-top:1.5rem">Gesamt-Downloads</h3>
+    <h3 style="margin-top:1.5rem">Server</h3>
+    <div id="serverDlGrid" class="dl-grid"></div>
+
+    <h3 style="margin-top:1.5rem">Clients</h3>
     <div class="dl-grid">
-      <div class="dl-card">
-        <div class="dl-icon">&#128421;</div>
-        <div class="dl-info">
-          <strong>Server-Bundle</strong>
-          <small>server.conf, Auth-Skript, Anleitung</small>
-        </div>
-        <a id="lnkServerZip" class="btn-dl" download>ZIP</a>
-      </div>
       <div class="dl-card">
         <div class="dl-icon">&#128228;</div>
         <div class="dl-info">
@@ -383,7 +378,25 @@ function showResult(d) {
     cr.appendChild(card);
   });
 
-  document.getElementById("lnkServerZip").href = "/download/" + d.server_zip;
+  const sg = document.getElementById("serverDlGrid");
+  sg.innerHTML =
+    `<div class="dl-card">
+       <div class="dl-icon">&#128421;</div>
+       <div class="dl-info"><strong>server.ovpn</strong><small>OpenVPN-Serverkonfiguration</small></div>
+       <a href="/download/${d.server_ovpn}" class="btn-dl" download>Download</a>
+     </div>
+     <div class="dl-card">
+       <div class="dl-icon">&#128196;</div>
+       <div class="dl-info"><strong>README.txt</strong><small>Installationsanleitung</small></div>
+       <a href="/download/${d.server_readme}" class="btn-dl" download>Download</a>
+     </div>` +
+    (d.server_crl
+      ? `<div class="dl-card">
+           <div class="dl-icon">&#128274;</div>
+           <div class="dl-info"><strong>crl.pem</strong><small>Certificate Revocation List</small></div>
+           <a href="/download/${d.server_crl}" class="btn-dl" download>Download</a>
+         </div>`
+      : "");
   document.getElementById("lnkClientZip").href = "/download/" + d.client_zip;
 }
 

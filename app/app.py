@@ -129,17 +129,46 @@ def extract_first_cert(pem: str) -> str:
 
 # ── Config builders ───────────────────────────────────────────────────────────
 
-def _readme(vpn_cidr: str, use_crl: bool) -> str:
-    crl_copy = "   cp crl.pem /etc/openvpn/\n" if use_crl else ""
-    crl_note = (
+def _readme(vpn_cidr: str, use_crl: bool, server_os: str = "linux") -> str:
+    crl_note_linux = (
         "\nZertifikat widerrufen:\n"
         "   easyrsa revoke <clientname> && easyrsa gen-crl\n"
         "   cp pki/crl.pem /etc/openvpn/crl.pem\n"
         if use_crl else ""
     )
+    crl_note_windows = (
+        "\nZertifikat widerrufen:\n"
+        "   easyrsa revoke <clientname> && easyrsa gen-crl\n"
+        '   crl.pem nach C:\\Program Files\\OpenVPN\\config\\ kopieren\n'
+        if use_crl else ""
+    )
+
+    if server_os == "windows":
+        crl_copy = '   crl.pem nach C:\\Program Files\\OpenVPN\\config\\ kopieren\n' if use_crl else ""
+        return (
+            "OpenVPN Server – Schnellstart (Windows)\n"
+            "=========================================\n\n"
+            "1. OpenVPN installieren\n"
+            "   https://openvpn.net/community-downloads/\n\n"
+            "2. Dateien nach C:\\Program Files\\OpenVPN\\config\\ kopieren\n"
+            "   server.ovpn\n"
+            + crl_copy +
+            "\n3. IP-Routing aktivieren (als Administrator)\n"
+            "   reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"
+            " /v IPEnableRouter /t REG_DWORD /d 1 /f\n\n"
+            "4. NAT einrichten (PowerShell als Administrator)\n"
+            f"   New-NetNat -Name VpnNat -InternalIPInterfaceAddressPrefix {vpn_cidr}\n\n"
+            "5. OpenVPN-Dienst starten\n"
+            "   net start OpenVPNService\n"
+            "   (Autostart: Dienste → OpenVPN Service → Automatisch)\n\n"
+            "6. Firewall: VPN-Port freigeben\n"
+            + crl_note_windows
+        )
+
+    crl_copy = "   cp crl.pem /etc/openvpn/\n" if use_crl else ""
     return (
-        "OpenVPN Server – Schnellstart\n"
-        "==============================\n\n"
+        "OpenVPN Server – Schnellstart (Linux)\n"
+        "======================================\n\n"
         "1. OpenVPN installieren\n"
         "   Ubuntu/Debian: apt install openvpn\n"
         "   Alpine:        apk add openvpn\n\n"
@@ -152,8 +181,8 @@ def _readme(vpn_cidr: str, use_crl: bool) -> str:
         f"   iptables -t nat -A POSTROUTING -s {vpn_cidr} -o eth0 -j MASQUERADE\n\n"
         "5. OpenVPN starten\n"
         "   systemctl enable --now openvpn@server\n\n"
-        "6. Firewall: VPN-Port freigeben.\n"
-        + crl_note
+        "6. Firewall: VPN-Port freigeben\n"
+        + crl_note_linux
     )
 
 
@@ -379,16 +408,16 @@ def generate_vpn(
             (job_dir / f"{cr['name']}.ovpn").write_text(ovpn)
             ovpn_map[cr["name"]] = ovpn
 
-        # ── Server ZIP ────────────────────────────────────────────────────────
+        # ── Server files ──────────────────────────────────────────────────────
         set_status(status, 93, "Packe Archive …")
-        server_zip = job_dir / "server-bundle.zip"
-        with zipfile.ZipFile(server_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("server.ovpn", server_conf)
-            if use_crl:
-                crl_path = pki_dir / "crl.pem"
-                if crl_path.exists():
-                    zf.writestr("crl.pem", crl_path.read_text())
-            zf.writestr("README.txt", _readme(vpn_cidr, use_crl))
+        (job_dir / "server.ovpn").write_text(server_conf)
+        (job_dir / "README.txt").write_text(_readme(vpn_cidr, use_crl, server_os))
+        server_crl_key = None
+        if use_crl:
+            crl_src = pki_dir / "crl.pem"
+            if crl_src.exists():
+                (job_dir / "crl.pem").write_bytes(crl_src.read_bytes())
+                server_crl_key = f"{jid}/crl.pem"
 
         # ── All-clients ZIP ───────────────────────────────────────────────────
         client_zip = job_dir / "alle-clients.zip"
@@ -406,10 +435,12 @@ def generate_vpn(
         status.update({
             "state": "done", "progress": 100,
             "message": "VPN-Konfiguration bereit!",
-            "encrypt_key": encrypt_key,
-            "clients":    client_results,
-            "server_zip": f"{jid}/server-bundle.zip",
-            "client_zip": f"{jid}/alle-clients.zip",
+            "encrypt_key":   encrypt_key,
+            "clients":       client_results,
+            "server_ovpn":   f"{jid}/server.ovpn",
+            "server_readme": f"{jid}/README.txt",
+            "server_crl":    server_crl_key,
+            "client_zip":    f"{jid}/alle-clients.zip",
         })
 
     except Exception as exc:

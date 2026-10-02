@@ -1,0 +1,344 @@
+From bcf908efe4792785506fff266189f8713ba31355 Mon Sep 17 00:00:00 2001
+From: ovpn-fix <fix@localhost>
+Date: Fri, 2 Oct 2026 06:41:33 +0000
+Subject: [PATCH] Security: Auth, Download-Whitelist, Non-root-Container,
+ EC-Keys
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- HTTP Basic Auth für die gesamte Weboberfläche (VPNGEN_USER/VPNGEN_PASSWORD)
+- /download liefert nur Ausgabedateien, PKI (ca.key, server.key, ta.key) nie
+- 128-Bit-Job-IDs statt 32 Bit, umask 077 für erzeugte Dateien
+- Container ohne root, ohne Capabilities, Port nur auf 127.0.0.1
+- EC-Schlüssel (secp384r1) wie in der README beschrieben, tls-cipher auf ECDSA
+- Server-Anleitung: Firewall-Regeln nur ins Zielnetz
+- Reservierte Clientnamen (server, ca) abfangen, Security-Header
+- README an tatsächlichen Funktionsumfang angepasst
+---
+ Dockerfile         |  8 +++-
+ README.md          | 43 ++++++++++++++++-----
+ app/app.py         | 94 ++++++++++++++++++++++++++++++++++++++++------
+ docker-compose.yml | 14 +++++--
+ 4 files changed, 135 insertions(+), 24 deletions(-)
+
+diff --git a/Dockerfile b/Dockerfile
+index a4b9a23..7a340ee 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -13,7 +13,13 @@ COPY app/requirements.txt .
+ RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+ 
+ COPY app/ .
+-RUN mkdir -p /app/jobs
++
++# Ohne root-Rechte laufen – für die Generierung werden keine Privilegien benötigt
++RUN adduser -D -H -u 10001 vpngen \
++ && mkdir -p /app/jobs \
++ && chown vpngen:vpngen /app/jobs \
++ && chmod 700 /app/jobs
++USER vpngen
+ 
+ EXPOSE 9192
+ CMD ["python3", "app.py"]
+diff --git a/README.md b/README.md
+index 3d29668..a793976 100644
+--- a/README.md
++++ b/README.md
+@@ -9,7 +9,8 @@ Einfach Server-IP eingeben, auf „VPN erstellen" klicken – fertig.
+ - **Automatische PKI** – CA, Server- & Client-Zertifikate via Easy-RSA (EC/secp384r1)
+ - **Starke Verschlüsselung** – AES-256-GCM, SHA-512, TLS-Crypt HMAC-Firewall
+ - **Client `.ovpn`** – alle Zertifikate inline eingebettet, sofort importierbar
+-- **Benutzername + Passwort** – automatisch generiert, für `auth-user-pass`-Auth
++- **Passwortgeschützte Client-Schlüssel** – optional, Passwort wird automatisch generiert
++- **Login-Schutz** – Weboberfläche per HTTP Basic Auth gesichert
+ - **Konfigurierbar** – Protokoll (UDP/TCP), Port, Zertifikat-Gültigkeit (30–3650 Tage)
+ - **Zwei Downloads** – Server-Bundle (ZIP) & Client-Paket (ZIP + .ovpn einzeln)
+ - **Automatische Bereinigung** – Jobs werden nach 24 Stunden gelöscht
+@@ -17,26 +18,46 @@ Einfach Server-IP eingeben, auf „VPN erstellen" klicken – fertig.
+ ## Schnellstart
+ 
+ ```bash
+-docker-compose up -d
++VPNGEN_PASSWORD='ein-langes-passwort' docker-compose up -d
+ ```
+ 
+-Öffne dann [http://localhost:9192](http://localhost:9192).
++Öffne dann [http://localhost:9192](http://localhost:9192) und melde dich als `admin` an.
++Ist `VPNGEN_PASSWORD` nicht gesetzt, wird beim Start ein Zufallspasswort erzeugt:
++
++```bash
++docker logs openvpn-web
++```
++
++| Variable | Standard | Bedeutung |
++|----------|----------|-----------|
++| `VPNGEN_USER` | `admin` | Benutzername für die Weboberfläche |
++| `VPNGEN_PASSWORD` | zufällig | Passwort für die Weboberfläche |
++| `VPNGEN_BIND` | `0.0.0.0` | Bind-Adresse innerhalb des Containers |
++
++Standardmäßig ist der Port nur auf `127.0.0.1` veröffentlicht. Soll der Generator im Netz
++erreichbar sein (z. B. für den QR-Code-Download am Handy), den Port in `docker-compose.yml`
++freigeben und idealerweise einen Reverse-Proxy mit HTTPS davorschalten – Basic Auth
++überträgt das Passwort sonst im Klartext.
++
++> **Update von einer älteren Version:** Der Container läuft jetzt ohne root-Rechte.
++> Ein bestehendes Volume gehört noch root – einmalig `docker-compose down -v` ausführen
++> (löscht die alten, ohnehin temporären Jobs).
+ 
+ ## Server-Bundle inhalt
+ 
+ | Datei | Inhalt |
+ |-------|--------|
+-| `server.conf` | OpenVPN-Serverkonfiguration mit eingebetteten Zertifikaten |
+-| `userpass.txt` | `benutzername:passwort` – für `auth-user-pass-verify` |
+-| `checkpwd.sh` | Authentifizierungsskript (via-env) |
+-| `README.txt` | Schritt-für-Schritt-Anleitung |
++| `server.ovpn` | OpenVPN-Serverkonfiguration mit eingebetteten Zertifikaten |
++| `install_readme.txt` | Schritt-für-Schritt-Anleitung inkl. Firewall-Regeln |
++| `crl.pem` | Sperrliste (nur wenn CRL aktiviert) |
+ 
+ ## Client-Paket Inhalt
+ 
+ | Datei | Inhalt |
+ |-------|--------|
+ | `<client>.ovpn` | Vollständige Client-Konfiguration (Zertifikate inline) |
+-| `credentials.txt` | VPN-Benutzername & Passwort zum Aufbewahren |
++| `<client>_install_readme.txt` | Installationsanleitung für das gewählte Betriebssystem |
++| `zugangsdaten.txt` | Schlüssel-Passwörter (nur bei verschlüsselten Client-Keys) |
+ 
+ ## Technische Details
+ 
+@@ -44,5 +65,9 @@ docker-compose up -d
+ - **PKI**: Easy-RSA 3.x, EC-Schlüssel (secp384r1), SHA-512
+ - **Kein DH** – ECDH für Forward Secrecy, `dh none`
+ - **TLS-Crypt** – HMAC-basierte TLS-Firewall (schützt vor Port-Scanning)
+-- **Sicherheit**: Eingabe-Validierung, keine Shell-Injection, Pfad-Traversal-Schutz
++- **Sicherheit**: Basic Auth, Eingabe-Validierung, keine Shell-Injection, Download-Whitelist
++  (PKI-Dateien wie `ca.key` sind nie abrufbar), 128-Bit-Job-IDs, restriktive Dateirechte,
++  Container ohne root und ohne Capabilities
++- **Zielnetz-Isolation**: Ist ein Zielnetz angegeben, enthält die Server-Anleitung
++  Firewall-Regeln, die VPN-Clients ausschließlich dorthin lassen
+ - **Nebenläufigkeit**: Thread-basiert, mehrere Jobs gleichzeitig möglich
+diff --git a/app/app.py b/app/app.py
+index 7afc637..dcd4aa7 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -11,6 +11,8 @@ import re
+ import ipaddress
+ import time
+ import shutil
++import hmac
++import base64
+ 
+ app = Flask(__name__)
+ 
+@@ -19,6 +21,44 @@ BASE_JOBS_DIR.mkdir(parents=True, exist_ok=True)
+ 
+ EASYRSA   = "/usr/share/easy-rsa/easyrsa"
+ MAX_CLIENTS = 20
++RESERVED_NAMES = {"server", "ca"}
++
++# Neu erzeugte Dateien (Keys, Configs) nur für den Prozess-User lesbar
++os.umask(0o077)
++
++# ── Authentifizierung (HTTP Basic) ────────────────────────────────────────────
++AUTH_USER = os.environ.get("VPNGEN_USER", "admin")
++AUTH_PASS = os.environ.get("VPNGEN_PASSWORD", "")
++if not AUTH_PASS:
++    AUTH_PASS = secrets.token_urlsafe(18)
++    print(f"[openvpn-web] VPNGEN_PASSWORD nicht gesetzt – generiertes Passwort "
++          f"für Benutzer '{AUTH_USER}': {AUTH_PASS}", flush=True)
++
++
++@app.before_request
++def require_auth():
++    header = request.headers.get("Authorization", "")
++    if header.startswith("Basic "):
++        try:
++            user, _, pwd = base64.b64decode(header[6:]).decode("utf-8").partition(":")
++        except Exception:
++            user, pwd = "", ""
++        user_ok = hmac.compare_digest(user.encode(), AUTH_USER.encode())
++        pass_ok = hmac.compare_digest(pwd.encode(), AUTH_PASS.encode())
++        if user_ok and pass_ok:
++            return None
++    return ("Anmeldung erforderlich", 401,
++            {"WWW-Authenticate": 'Basic realm="OpenVPN Generator", charset="UTF-8"'})
++
++
++@app.after_request
++def security_headers(resp):
++    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
++    resp.headers.setdefault("X-Frame-Options", "DENY")
++    resp.headers.setdefault("Referrer-Policy", "no-referrer")
++    resp.headers.setdefault("Cache-Control", "no-store")
++    return resp
++
+ 
+ JOBS: dict[str, dict] = {}
+ JOBS_LOCK = threading.Lock()
+@@ -26,7 +66,7 @@ JOBS_LOCK = threading.Lock()
+ # ── Helpers ───────────────────────────────────────────────────────────────────
+ 
+ def make_job() -> tuple[str, dict]:
+-    jid = f"job-{uuid.uuid4().hex[:8]}"
++    jid = f"job-{secrets.token_hex(16)}"
+     status: dict = {
+         "state": "running", "progress": 0, "message": "Starte...",
+         "encrypt_key": True, "clients": [],
+@@ -64,7 +104,9 @@ def generate_password(length: int = 16) -> str:
+ 
+ 
+ def sanitize_client(name: str) -> str:
+-    return re.sub(r"[^a-zA-Z0-9_-]", "", name)[:32] or "client"
++    clean = re.sub(r"[^a-zA-Z0-9_-]", "", name)[:32] or "client"
++    # "server"/"ca" würden mit den PKI-Dateien des Servers kollidieren
++    return f"client-{clean}" if clean.lower() in RESERVED_NAMES else clean
+ 
+ 
+ def parse_network(cidr: str) -> tuple[str, str] | None:
+@@ -107,14 +149,16 @@ def pki_env(pki_dir: Path, cert_days: int) -> dict:
+         "EASYRSA_BATCH":   "1",
+         "EASYRSA_CA_EXPIRE":   str(cert_days * 3),
+         "EASYRSA_CERT_EXPIRE": str(cert_days),
+-        "EASYRSA_KEY_SIZE": "2048",
++        "EASYRSA_ALGO":    "ec",
++        "EASYRSA_CURVE":   "secp384r1",
+         "EASYRSA_DIGEST":  "sha512",
+     }
+ 
+ 
+ def write_vars(pki_dir: Path, cert_days: int) -> None:
+     (pki_dir / "vars").write_text(
+-        f'set_var EASYRSA_KEY_SIZE    "2048"\n'
++        f'set_var EASYRSA_ALGO        "ec"\n'
++        f'set_var EASYRSA_CURVE       "secp384r1"\n'
+         f'set_var EASYRSA_CA_EXPIRE   "{cert_days * 3}"\n'
+         f'set_var EASYRSA_CERT_EXPIRE "{cert_days}"\n'
+         f'set_var EASYRSA_DIGEST      "sha512"\n'
+@@ -129,7 +173,8 @@ def extract_first_cert(pem: str) -> str:
+ 
+ # ── Config builders ───────────────────────────────────────────────────────────
+ 
+-def _readme(vpn_cidr: str, use_crl: bool, server_os: str = "linux") -> str:
++def _readme(vpn_cidr: str, use_crl: bool, server_os: str = "linux",
++            target_cidr: str | None = None) -> str:
+     crl_note_linux = (
+         "\nZertifikat widerrufen:\n"
+         "   easyrsa revoke <clientname> && easyrsa gen-crl\n"
+@@ -162,6 +207,10 @@ def _readme(vpn_cidr: str, use_crl: bool, server_os: str = "linux") -> str:
+             "   net start OpenVPNService\n"
+             "   (Autostart: Dienste → OpenVPN Service → Automatisch)\n\n"
+             "6. Firewall: VPN-Port freigeben\n"
++            + (f"   Achtung: New-NetNat beschränkt den Zugriff nicht. VPN-Clients nur\n"
++               f"   ins Zielnetz {target_cidr} lassen (Windows-Firewall-Regeln)!\n"
++               if target_cidr else
++               "   Achtung: VPN-Clients erreichen ohne weitere Regeln das gesamte Netz!\n")
+             + crl_note_windows
+         )
+ 
+@@ -177,8 +226,19 @@ def _readme(vpn_cidr: str, use_crl: bool, server_os: str = "linux") -> str:
+         + crl_copy +
+         "\n3. IP-Forwarding aktivieren\n"
+         "   echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf && sysctl -p\n\n"
+-        "4. NAT (eth0 ggf. anpassen)\n"
+-        f"   iptables -t nat -A POSTROUTING -s {vpn_cidr} -o eth0 -j MASQUERADE\n\n"
++        + (
++            "4. Weiterleitung nur ins Zielnetz erlauben + NAT\n"
++            "   (tun0 ggf. anpassen, siehe 'ip a')\n"
++            f"   iptables -I FORWARD -o tun0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT\n"
++            f"   iptables -I FORWARD 2 -i tun0 -s {vpn_cidr} -d {target_cidr} -j ACCEPT\n"
++            f"   iptables -I FORWARD 3 -i tun0 -j DROP\n"
++            f"   iptables -t nat -A POSTROUTING -s {vpn_cidr} -d {target_cidr} -j MASQUERADE\n\n"
++            if target_cidr else
++            "4. NAT (eth0 ggf. anpassen)\n"
++            f"   iptables -t nat -A POSTROUTING -s {vpn_cidr} -o eth0 -j MASQUERADE\n"
++            "   Achtung: VPN-Clients erreichen so das gesamte Netz hinter dem Server.\n"
++            "   Für reinen Zugriff auf ein System ein Zielnetz angeben.\n\n"
++        ) +
+         "5. OpenVPN starten\n"
+         "   systemctl enable --now openvpn@server\n\n"
+         "6. Firewall: VPN-Port freigeben\n"
+@@ -305,7 +365,7 @@ data-ciphers AES-256-GCM
+ data-ciphers-fallback AES-256-GCM
+ auth SHA512
+ tls-version-min 1.2
+-tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
++tls-cipher TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
+ 
+ topology subnet
+ server {vpn_net} {vpn_mask}
+@@ -370,7 +430,7 @@ data-ciphers AES-256-GCM
+ data-ciphers-fallback AES-256-GCM
+ auth SHA512
+ tls-version-min 1.2
+-tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
++tls-cipher TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384
+ remote-cert-tls server
+ 
+ {platform_block}
+@@ -490,7 +550,10 @@ def generate_vpn(
+         # ── Server files ──────────────────────────────────────────────────────
+         set_status(status, 93, "Packe Archive …")
+         (job_dir / "server.ovpn").write_text(server_conf)
+-        (job_dir / "install_readme.txt").write_text(_readme(vpn_cidr, use_crl, server_os))
++        target_cidr = (str(ipaddress.IPv4Network(f"{target_net[0]}/{target_net[1]}"))
++                       if target_net else None)
++        (job_dir / "install_readme.txt").write_text(
++            _readme(vpn_cidr, use_crl, server_os, target_cidr))
+         server_crl_key = None
+         if use_crl:
+             crl_src = pki_dir / "crl.pem"
+@@ -653,8 +716,17 @@ def status(job_id):
+         return jsonify(JOBS[job_id])
+ 
+ 
++# Nur die erzeugten Ausgabedateien direkt im Job-Ordner – niemals pki/ (CA-/Server-Keys)
++DOWNLOAD_RE = re.compile(
++    r"^job-[0-9a-f]{32}/[A-Za-z0-9_-]+(\.ovpn|_install_readme\.txt|\.zip)$"
++    r"|^job-[0-9a-f]{32}/(install_readme\.txt|crl\.pem)$"
++)
++
++
+ @app.route("/download/<path:filepath>")
+ def download(filepath):
++    if not DOWNLOAD_RE.match(filepath):
++        return "Zugriff verweigert", 403
+     try:
+         full = (BASE_JOBS_DIR / filepath).resolve()
+         base = BASE_JOBS_DIR.resolve()
+@@ -683,4 +755,4 @@ def _cleanup() -> None:
+ threading.Thread(target=_cleanup, daemon=True).start()
+ 
+ if __name__ == "__main__":
+-    app.run(host="0.0.0.0", port=9192, threaded=True)
++    app.run(host=os.environ.get("VPNGEN_BIND", "0.0.0.0"), port=9192, threaded=True)
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 1284df5..712d081 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -4,9 +4,17 @@ services:
+     build: .
+     container_name: openvpn-web
+     ports:
+-      - "9192:9192"
+-    cap_add:
+-      - NET_ADMIN
++      # Nur lokal erreichbar. Für Zugriff aus dem Netz (z. B. QR-Code am Handy)
++      # "9192:9192" verwenden – dann am besten hinter einem Reverse-Proxy mit HTTPS.
++      - "127.0.0.1:9192:9192"
++    environment:
++      VPNGEN_USER: ${VPNGEN_USER:-admin}
++      # Leer = beim Start wird ein Zufallspasswort erzeugt (siehe "docker logs openvpn-web")
++      VPNGEN_PASSWORD: ${VPNGEN_PASSWORD:-}
++    security_opt:
++      - no-new-privileges:true
++    cap_drop:
++      - ALL
+     volumes:
+       - vpn-jobs:/app/jobs
+     restart: unless-stopped
+-- 
+2.43.0
+

@@ -46,7 +46,7 @@ Generator: `http://<server>:9192` – Verwaltung: `http://<server>:9192/verwaltu
 | `VPNGEN_PASSWORD` | leer | Passwort für die Verwaltung – leer = Verwaltung deaktiviert |
 | `VPNGEN_SECRET` | leer | Schlüssel für die verschlüsselte Ablage (siehe unten) |
 | `VPNGEN_COOKIE_SECURE` | `0` | `1`, wenn nur per HTTPS erreichbar (Reverse-Proxy) |
-| `VPNGEN_GATEWAY_IP` | `192.168.3.11` | Gateway für die vorgeschlagenen NAT-Befehle |
+| `VPNGEN_GATEWAY_IP` | `192.168.100.1` | Gateway für die vorgeschlagenen NAT-Befehle |
 | `VPNGEN_GATEWAY_IF` | `eno1` | Eingangs-Interface am Gateway |
 | `VPNGEN_WAN_IF` | `WAN1` | WAN-Interface am Mikrotik |
 | `VPNGEN_BIND` | `0.0.0.0` | Bind-Adresse innerhalb des Containers |

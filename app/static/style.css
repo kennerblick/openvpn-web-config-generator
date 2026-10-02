@@ -286,3 +286,75 @@ h3 { font-size: .95rem; color: var(--dim); margin-bottom: .75rem; }
   .field.span-2 { grid-column: span 1; }
   .dl-card, .client-result-head { flex-wrap: wrap; }
 }
+
+/* ── Verwaltung ── */
+.header-link {
+  display: inline-block; margin-top: .9rem; color: var(--dim);
+  font-size: .85rem; text-decoration: none; border: 1px solid var(--border);
+  border-radius: 8px; padding: .35rem .8rem; transition: all .2s;
+}
+.header-link:hover { color: var(--primary); border-color: var(--primary); }
+.result-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+
+.container-wide { max-width: 1100px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;
+}
+.topbar h1 { font-size: 1.5rem; }
+.topbar nav { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.topbar form { display: inline; }
+a.btn-secondary { text-decoration: none; display: inline-block; }
+.btn-danger {
+  padding: .45rem .9rem; background: transparent; color: var(--error);
+  border: 1px solid var(--error); border-radius: 6px; cursor: pointer; font-size: .82rem;
+}
+.btn-danger:hover { background: var(--error); color: #fff; }
+.btn-small { padding: .3rem .65rem; font-size: .78rem; }
+
+.flash { padding: .7rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .88rem;
+         border: 1px solid var(--border); background: var(--surface2); }
+.flash.ok    { border-color: var(--success); color: var(--success); }
+.flash.error { border-color: var(--error);   color: var(--error); }
+.flash.warn  { border-color: #e0a84f;        color: #e0a84f; }
+
+.filterbar { display: flex; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.filterbar input { flex: 1; min-width: 200px; }
+.filterbar select { width: auto; }
+
+.table-wrap { overflow-x: auto; }
+table.ztable { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.ztable th { text-align: left; color: var(--dim); font-weight: 500; font-size: .78rem;
+             padding: .5rem .6rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ztable td { padding: .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ztable tr:hover td { background: var(--surface2); }
+.ztable a { color: var(--text); text-decoration: none; font-weight: 600; }
+.ztable a:hover { color: var(--primary); }
+.mono { font-family: "Cascadia Code", "Fira Code", monospace; font-size: .85rem; }
+
+.badge { display: inline-block; padding: .12rem .5rem; border-radius: 99px; font-size: .72rem;
+         border: 1px solid var(--border); color: var(--dim); white-space: nowrap; }
+.badge.aktiv   { border-color: var(--success); color: var(--success); }
+.badge.abgelaufen { border-color: #e0a84f; color: #e0a84f; }
+
+.kv { display: grid; grid-template-columns: 170px 1fr; gap: .45rem 1rem; font-size: .9rem; }
+.kv dt { color: var(--dim); font-size: .82rem; padding-top: .1rem; }
+.kv dd { word-break: break-word; }
+.notes { white-space: pre-wrap; }
+.card h2 { font-size: 1.05rem; margin-bottom: 1rem; }
+.row-list { display: flex; flex-direction: column; gap: .5rem; }
+.row-item { display: flex; align-items: center; gap: .75rem; background: var(--surface2);
+            border: 1px solid var(--border); border-radius: 8px; padding: .55rem .8rem; }
+.row-item .grow { flex: 1; word-break: break-all; }
+.row-item small { color: var(--dim); font-size: .75rem; }
+.inline-form { display: flex; gap: .5rem; margin-top: .9rem; flex-wrap: wrap; }
+.inline-form input { flex: 1; min-width: 160px; }
+pre.cmd { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+          padding: .75rem; overflow-x: auto; font-size: .8rem; margin-bottom: .5rem; }
+textarea { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+           color: var(--text); padding: .55rem .8rem; font: inherit; font-size: .92rem;
+           width: 100%; min-height: 110px; resize: vertical; outline: none; }
+textarea:focus { border-color: var(--primary); }
+.form-actions { display: flex; gap: .75rem; justify-content: flex-end; margin-top: 1.25rem; }
+.form-actions .btn-primary { width: auto; padding: .7rem 1.6rem; }
+@media (max-width: 520px) { .kv { grid-template-columns: 1fr; } }

@@ -1,0 +1,49 @@
+{% extends "verwaltung/base.html" %}
+{% block title %}Zugänge{% endblock %}
+{% block content %}
+<div class="card">
+  <form class="filterbar" method="get">
+    <input type="search" name="q" value="{{ q }}" placeholder="Suche: Hersteller, Produkt, IP, Port, Notizen …">
+    <select name="status" onchange="this.form.submit()">
+      <option value="aktiv"   {{ 'selected' if status == 'aktiv' }}>Aktive</option>
+      <option value="beendet" {{ 'selected' if status == 'beendet' }}>Beendete</option>
+      <option value="alle"    {{ 'selected' if status == 'alle' }}>Alle</option>
+    </select>
+    <button class="btn-secondary">Suchen</button>
+  </form>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="ztable">
+      <thead><tr>
+        <th>Hersteller / Produkt</th><th>Ansprechpartner</th><th>Ext. Port</th>
+        <th>Ziel</th><th>Weg</th><th>Gültig bis</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+      {% for z in rows %}
+        <tr>
+          <td><a href="{{ url_for('verwaltung.detail', zid=z.id) }}">{{ z.hersteller }}</a>
+              <div class="dim">{{ z.produkt }}</div></td>
+          <td>{{ z.ansprechpartner or '' }}</td>
+          <td class="mono">{{ z.ext_port or '' }}{% if z.ext_port %}/{{ z.proto }}{% endif %}</td>
+          <td class="mono">{{ z.vm_ip or '' }}{% if z.vm_port %}:{{ z.vm_port }}{% endif %}</td>
+          <td>{{ 'über Gateway' if z.weg == 'gateway' else 'direkt' }}</td>
+          <td>{{ z.gueltig_bis or '' }}</td>
+          <td>
+            {% if z.status == 'aktiv' and z.gueltig_bis and z.gueltig_bis < heute %}
+              <span class="badge abgelaufen">abgelaufen</span>
+            {% else %}
+              <span class="badge {{ z.status }}">{{ z.status }}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="dim">Keine Zugänge gefunden. <a href="{{ url_for('verwaltung.neu') }}" style="color:var(--primary)">Neuen Zugang anlegen</a>
+    oder im <a href="/" style="color:var(--primary)">Generator</a> erzeugen und „In Verwaltung speichern“ wählen.</p>
+  {% endif %}
+</div>
+{% endblock %}

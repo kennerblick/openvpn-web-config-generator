@@ -11,8 +11,7 @@ import re
 import ipaddress
 import time
 import shutil
-import hmac
-import base64
+import hashlib
 
 app = Flask(__name__)
 
@@ -26,29 +25,19 @@ RESERVED_NAMES = {"server", "ca"}
 # Neu erzeugte Dateien (Keys, Configs) nur für den Prozess-User lesbar
 os.umask(0o077)
 
-# ── Authentifizierung (HTTP Basic) ────────────────────────────────────────────
-AUTH_USER = os.environ.get("VPNGEN_USER", "admin")
-AUTH_PASS = os.environ.get("VPNGEN_PASSWORD", "")
-if not AUTH_PASS:
-    AUTH_PASS = secrets.token_urlsafe(18)
-    print(f"[openvpn-web] VPNGEN_PASSWORD nicht gesetzt – generiertes Passwort "
-          f"für Benutzer '{AUTH_USER}': {AUTH_PASS}", flush=True)
+# ── Verwaltung (passwortgeschützt, eigener Bereich) ───────────────────────────
+import manager
 
-
-@app.before_request
-def require_auth():
-    header = request.headers.get("Authorization", "")
-    if header.startswith("Basic "):
-        try:
-            user, _, pwd = base64.b64decode(header[6:]).decode("utf-8").partition(":")
-        except Exception:
-            user, pwd = "", ""
-        user_ok = hmac.compare_digest(user.encode(), AUTH_USER.encode())
-        pass_ok = hmac.compare_digest(pwd.encode(), AUTH_PASS.encode())
-        if user_ok and pass_ok:
-            return None
-    return ("Anmeldung erforderlich", 401,
-            {"WWW-Authenticate": 'Basic realm="OpenVPN Generator", charset="UTF-8"'})
+app.secret_key = (hashlib.sha256(b"session" + manager.SECRET).digest() if manager.ENABLED
+                  else secrets.token_bytes(32))
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("VPNGEN_COOKIE_SECURE") == "1",
+    PERMANENT_SESSION_LIFETIME=8 * 3600,
+    MAX_CONTENT_LENGTH=10 * 1024 * 1024,
+)
+app.register_blueprint(manager.bp)
 
 
 @app.after_request
@@ -62,6 +51,7 @@ def security_headers(resp):
 
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
+manager.init_jobs(JOBS, JOBS_LOCK, BASE_JOBS_DIR)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -694,7 +684,8 @@ def create():
         client_oses.append("linux")
     client_oses = client_oses[:len(clients)]
 
-    jid, _ = make_job()
+    jid, status = make_job()
+    status["params"] = {"server_ip": server_ip, "port": port, "proto": proto}
     threading.Thread(
         target=generate_vpn,
         args=(jid, server_ip, port, proto, clients, cert_days,

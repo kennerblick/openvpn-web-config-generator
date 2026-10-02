@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Verwaltung{% endblock %} – OpenVPN</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container container-wide">
+  {% if session.user %}
+  <div class="topbar">
+    <h1>&#128273; VPN-Verwaltung</h1>
+    <nav>
+      <a href="{{ url_for('verwaltung.liste') }}" class="btn-secondary">Zugänge</a>
+      <a href="{{ url_for('verwaltung.neu') }}" class="btn-secondary">+ Neuer Zugang</a>
+      <a href="/" class="btn-secondary">Generator</a>
+      <form method="post" action="{{ url_for('verwaltung.logout') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn-secondary">Abmelden</button>
+      </form>
+    </nav>
+  </div>
+  {% endif %}
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+  {% endfor %}
+  {% block content %}{% endblock %}
+</div>
+<script>
+const CSRF = "{{ csrf }}";
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

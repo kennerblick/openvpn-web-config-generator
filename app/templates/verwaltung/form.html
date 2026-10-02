@@ -1,0 +1,68 @@
+{% extends "verwaltung/base.html" %}
+{% block title %}{{ titel }}{% endblock %}
+{% block content %}
+<form method="post" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% if job_id %}<input type="hidden" name="job" value="{{ job_id }}">{% endif %}
+  <h2>{{ titel }}</h2>
+
+  {% if job %}
+    <div class="flash ok">Aus dem Generator übernommen: {{ job.clients|length }} Client(s).
+      Configs, Readmes und Schlüssel-Passwörter werden beim Speichern verschlüsselt abgelegt.</div>
+  {% elif job_id %}
+    <div class="flash warn">Der Generator-Job ist nicht mehr verfügbar (älter als 24 h oder Neustart).
+      Dateien bitte nach dem Speichern manuell hochladen.</div>
+  {% endif %}
+
+  <div class="grid-2">
+    <div class="field"><label>Hersteller <span class="req">*</span></label>
+      <input name="hersteller" value="{{ z.hersteller or '' }}" required autofocus></div>
+    <div class="field"><label>Produkt <span class="req">*</span></label>
+      <input name="produkt" value="{{ z.produkt or '' }}" required></div>
+    <div class="field"><label>Ansprechpartner</label>
+      <input name="ansprechpartner" value="{{ z.ansprechpartner or '' }}"></div>
+    <div class="field"><label>Kontakt <span class="opt">(Mail / Telefon)</span></label>
+      <input name="kontakt" value="{{ z.kontakt or '' }}"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="field"><label>Externe Adresse <span class="opt">(Server-IP / Hostname)</span></label>
+      <input name="server_host" value="{{ z.server_host or '' }}"></div>
+    <div class="field"><label>Externer Port / Protokoll</label>
+      <div style="display:flex;gap:.5rem">
+        <input name="ext_port" value="{{ z.ext_port or '' }}" inputmode="numeric" placeholder="z.B. 11154">
+        <select name="proto" style="width:6rem">
+          <option value="udp" {{ 'selected' if z.proto != 'tcp' }}>UDP</option>
+          <option value="tcp" {{ 'selected' if z.proto == 'tcp' }}>TCP</option>
+        </select>
+      </div></div>
+    <div class="field"><label>Weg</label>
+      <select name="weg">
+        <option value="direkt"  {{ 'selected' if z.weg != 'gateway' }}>Mikrotik → VM direkt</option>
+        <option value="gateway" {{ 'selected' if z.weg == 'gateway' }}>Mikrotik → Gateway → VM</option>
+      </select></div>
+    <div class="field"><label>VM-IP / Port auf der VM</label>
+      <div style="display:flex;gap:.5rem">
+        <input name="vm_ip" value="{{ z.vm_ip or '' }}" placeholder="z.B. 192.168.241.36">
+        <input name="vm_port" value="{{ z.vm_port or '' }}" inputmode="numeric" placeholder="11194" style="width:7rem">
+      </div></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="field"><label>Gültig bis</label>
+      <input type="date" name="gueltig_bis" value="{{ z.gueltig_bis or '' }}"></div>
+    <div class="field"><label>Status</label>
+      <select name="status">
+        <option value="aktiv"   {{ 'selected' if z.status != 'beendet' }}>aktiv</option>
+        <option value="beendet" {{ 'selected' if z.status == 'beendet' }}>beendet</option>
+      </select></div>
+    <div class="field span-2"><label>Notizen</label>
+      <textarea name="notizen">{{ z.notizen or '' }}</textarea></div>
+  </div>
+
+  <div class="form-actions">
+    <a href="{{ url_for('verwaltung.detail', zid=z.id) if z.id else url_for('verwaltung.liste') }}" class="btn-secondary">Abbrechen</a>
+    <button class="btn-primary">Speichern</button>
+  </div>
+</form>
+{% endblock %}

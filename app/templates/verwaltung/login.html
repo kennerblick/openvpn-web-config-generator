@@ -1,0 +1,26 @@
+{% extends "verwaltung/base.html" %}
+{% block title %}Anmeldung{% endblock %}
+{% block content %}
+<div class="container" style="padding-top:3rem">
+  <header>
+    <div class="logo">&#128273;</div>
+    <h1>VPN-Verwaltung</h1>
+    <p class="subtitle">Herstellerzugänge – nur für Berechtigte</p>
+  </header>
+  <div class="card">
+    {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <div class="field" style="margin-bottom:1rem">
+        <label>Benutzer</label>
+        <input type="text" name="user" value="admin" autocomplete="username" required>
+      </div>
+      <div class="field" style="margin-bottom:1.25rem">
+        <label>Passwort</label>
+        <input type="password" name="password" autocomplete="current-password" required autofocus>
+      </div>
+      <button class="btn-primary">Anmelden</button>
+    </form>
+  </div>
+  <p class="dim" style="text-align:center"><a href="/" style="color:var(--dim)">&larr; zum Generator</a></p>
+</div>
+{% endblock %}

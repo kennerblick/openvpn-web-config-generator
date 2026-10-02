@@ -1,0 +1,119 @@
+{% extends "verwaltung/base.html" %}
+{% block title %}{{ z.hersteller }} – {{ z.produkt }}{% endblock %}
+{% block content %}
+{% for k in konflikte %}
+  <div class="flash warn">Port {{ z.ext_port }}/{{ z.proto }} ist auch bei
+    <a href="{{ url_for('verwaltung.detail', zid=k.id) }}" style="color:inherit">„{{ k.hersteller }} – {{ k.produkt }}“</a> aktiv vergeben.</div>
+{% endfor %}
+
+<div class="card">
+  <div class="topbar" style="margin-bottom:1rem">
+    <h2 style="margin:0">{{ z.hersteller }} – {{ z.produkt }}
+      {% if z.status == 'aktiv' and z.gueltig_bis and z.gueltig_bis < heute %}
+        <span class="badge abgelaufen">abgelaufen</span>
+      {% else %}<span class="badge {{ z.status }}">{{ z.status }}</span>{% endif %}
+    </h2>
+    <nav>
+      <a href="{{ url_for('verwaltung.bearbeiten', zid=z.id) }}" class="btn-secondary">Bearbeiten</a>
+      <form method="post" action="{{ url_for('verwaltung.loeschen', zid=z.id) }}"
+            onsubmit="return confirm('Zugang inkl. aller Dateien und Passwörter endgültig löschen?')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn-danger">Löschen</button>
+      </form>
+    </nav>
+  </div>
+  <dl class="kv">
+    <dt>Ansprechpartner</dt><dd>{{ z.ansprechpartner or '–' }}</dd>
+    <dt>Kontakt</dt><dd>{{ z.kontakt or '–' }}</dd>
+    <dt>Externer Zugang</dt><dd class="mono">{{ z.server_host or '?' }}:{{ z.ext_port or '?' }}/{{ z.proto }}</dd>
+    <dt>Weg</dt><dd>{{ 'Mikrotik → Gateway → VM' if z.weg == 'gateway' else 'Mikrotik → VM direkt' }}</dd>
+    <dt>Ziel-VM</dt><dd class="mono">{{ z.vm_ip or '–' }}{% if z.vm_port %}:{{ z.vm_port }}{% endif %}</dd>
+    <dt>Gültig bis</dt><dd>{{ z.gueltig_bis or '–' }}</dd>
+    <dt>Notizen</dt><dd class="notes">{{ z.notizen or '–' }}</dd>
+    <dt>Erstellt / geändert</dt><dd class="dim">{{ z.erstellt }} / {{ z.geaendert }}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>&#128273; Passwörter</h2>
+  <div class="row-list">
+    {% for g in geheimes %}
+      <div class="row-item">
+        <span class="grow">{{ g.bezeichnung }}<br><code class="mono" id="g{{ g.id }}">••••••••••</code></span>
+        <button class="copy-btn" onclick="zeigen({{ g.id }}, this)">Anzeigen</button>
+        <button class="copy-btn" onclick="kopieren({{ g.id }}, this)">Kopieren</button>
+        <form method="post" action="{{ url_for('verwaltung.geheimnis_loeschen', zid=z.id, gid=g.id) }}"
+              onsubmit="return confirm('Passwort löschen?')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn-danger btn-small">&#215;</button>
+        </form>
+      </div>
+    {% else %}<p class="dim">Noch keine Passwörter gespeichert.</p>{% endfor %}
+  </div>
+  <form class="inline-form" method="post" action="{{ url_for('verwaltung.geheimnis_neu', zid=z.id) }}" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input name="bezeichnung" placeholder="Bezeichnung, z.B. VM-Login root" required>
+    <input type="password" name="wert" placeholder="Passwort" required autocomplete="new-password">
+    <button class="btn-secondary">Hinzufügen</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>&#128196; Dateien</h2>
+  <div class="row-list">
+    {% for d in dateien %}
+      <div class="row-item">
+        <span class="grow">{{ d.name }}<br><small>{{ d.erstellt }}</small></span>
+        <a href="{{ url_for('verwaltung.datei_download', zid=z.id, did=d.id) }}" class="btn-dl">Download</a>
+        <form method="post" action="{{ url_for('verwaltung.datei_loeschen', zid=z.id, did=d.id) }}"
+              onsubmit="return confirm('Datei löschen?')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn-danger btn-small">&#215;</button>
+        </form>
+      </div>
+    {% else %}<p class="dim">Noch keine Dateien gespeichert.</p>{% endfor %}
+  </div>
+  <form class="inline-form" method="post" enctype="multipart/form-data"
+        action="{{ url_for('verwaltung.datei_hochladen', zid=z.id) }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="file" name="datei" required>
+    <button class="btn-secondary">Hochladen</button>
+  </form>
+</div>
+
+{% if befehle %}
+<div class="card">
+  <h2>&#128295; Portweiterleitung einrichten</h2>
+  {% for ziel, cmd in befehle.items() %}
+    <h3>{{ ziel }}</h3>
+    <pre class="cmd" id="cmd{{ loop.index }}">{{ cmd }}</pre>
+    <button class="copy-btn" style="margin-bottom:1rem" onclick="copyCmd('cmd{{ loop.index }}', this)">Kopieren</button>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function holen(id) {
+  const r = await fetch(`{{ url_for('verwaltung.detail', zid=z.id) }}/geheimnis/${id}`,
+                        {method: "POST", headers: {"X-CSRF": CSRF}});
+  if (!r.ok) throw new Error("Fehler " + r.status);
+  return (await r.json()).wert;
+}
+async function zeigen(id, btn) {
+  const el = document.getElementById("g" + id);
+  if (btn.dataset.open) { el.textContent = "••••••••••"; btn.textContent = "Anzeigen"; delete btn.dataset.open; return; }
+  el.textContent = await holen(id); btn.textContent = "Verbergen"; btn.dataset.open = 1;
+}
+async function kopieren(id, btn) {
+  await navigator.clipboard.writeText(await holen(id));
+  const t = btn.textContent; btn.textContent = "✓"; setTimeout(() => btn.textContent = t, 1500);
+}
+function copyCmd(id, btn) {
+  navigator.clipboard.writeText(document.getElementById(id).textContent).then(() => {
+    const t = btn.textContent; btn.textContent = "✓"; setTimeout(() => btn.textContent = t, 1500);
+  });
+}
+</script>
+{% endblock %}

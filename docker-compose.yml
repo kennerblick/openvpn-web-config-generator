@@ -1,23 +1,27 @@
-version: "3.8"
 services:
   vpn-web:
     build: .
     container_name: openvpn-web
     ports:
-      # Nur lokal erreichbar. Für Zugriff aus dem Netz (z. B. QR-Code am Handy)
-      # "9192:9192" verwenden – dann am besten hinter einem Reverse-Proxy mit HTTPS.
-      - "127.0.0.1:9192:9192"
+      - "9192:9192"
     environment:
+      # Login für die Verwaltung unter /verwaltung (leer = Verwaltung deaktiviert).
+      # Der Generator selbst ist immer ohne Anmeldung nutzbar.
       VPNGEN_USER: ${VPNGEN_USER:-admin}
-      # Leer = beim Start wird ein Zufallspasswort erzeugt (siehe "docker logs openvpn-web")
       VPNGEN_PASSWORD: ${VPNGEN_PASSWORD:-}
+      # Schlüssel für die verschlüsselte Ablage – setzen und sicher aufbewahren!
+      VPNGEN_SECRET: ${VPNGEN_SECRET:-}
+      # Nur über HTTPS erreichbar (z. B. hinter dem Nginx Proxy Manager)? Dann auf 1 setzen.
+      VPNGEN_COOKIE_SECURE: ${VPNGEN_COOKIE_SECURE:-0}
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     volumes:
       - vpn-jobs:/app/jobs
+      - vpn-data:/app/data
     restart: unless-stopped
 
 volumes:
   vpn-jobs:
+  vpn-data:

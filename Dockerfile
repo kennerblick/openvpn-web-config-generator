@@ -6,7 +6,8 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     openssl \
-    bash
+    bash \
+    py3-cryptography
 
 WORKDIR /app
 COPY app/requirements.txt .
@@ -16,9 +17,9 @@ COPY app/ .
 
 # Ohne root-Rechte laufen – für die Generierung werden keine Privilegien benötigt
 RUN adduser -D -H -u 10001 vpngen \
- && mkdir -p /app/jobs \
- && chown vpngen:vpngen /app/jobs \
- && chmod 700 /app/jobs
+ && mkdir -p /app/jobs /app/data \
+ && chown vpngen:vpngen /app/jobs /app/data \
+ && chmod 700 /app/jobs /app/data
 USER vpngen
 
 EXPOSE 9192

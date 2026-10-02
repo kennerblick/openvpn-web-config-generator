@@ -17,6 +17,7 @@
     <div class="logo">&#128274;</div>
     <h1>OpenVPN Generator</h1>
     <p class="subtitle">Wegwerf-VPN in einem Klick &mdash; IP eingeben, fertig.</p>
+    {% if verwaltung_aktiv %}<a href="/verwaltung/" class="header-link">&#128273; Verwaltung</a>{% endif %}
   </header>
 
   <!-- ── Form ── -->
@@ -220,7 +221,10 @@
         <a id="lnkClientZip" class="btn-dl" download>ZIP</a>
       </div>
     </div>
-    <button class="btn-secondary" onclick="location.reload()">Neues VPN erstellen</button>
+    <div class="result-actions">
+      {% if verwaltung_aktiv %}<a id="lnkSave" class="btn-dl">&#128190; In Verwaltung speichern</a>{% endif %}
+      <button class="btn-secondary" onclick="location.reload()">Neues VPN erstellen</button>
+    </div>
   </div>
 
   <!-- ── Error ── -->
@@ -400,6 +404,8 @@ function showResult(d) {
          </div>`
       : "");
   document.getElementById("lnkClientZip").href = "/download/" + d.client_zip;
+  const save = document.getElementById("lnkSave");
+  if (save) save.href = "/verwaltung/neu?job=" + jobId;
 }
 
 function showError(msg) {

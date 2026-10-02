@@ -13,7 +13,13 @@ COPY app/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
 
 COPY app/ .
-RUN mkdir -p /app/jobs
+
+# Ohne root-Rechte laufen – für die Generierung werden keine Privilegien benötigt
+RUN adduser -D -H -u 10001 vpngen \
+ && mkdir -p /app/jobs \
+ && chown vpngen:vpngen /app/jobs \
+ && chmod 700 /app/jobs
+USER vpngen
 
 EXPOSE 9192
 CMD ["python3", "app.py"]

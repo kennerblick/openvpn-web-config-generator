@@ -4,9 +4,17 @@ services:
     build: .
     container_name: openvpn-web
     ports:
-      - "9192:9192"
-    cap_add:
-      - NET_ADMIN
+      # Nur lokal erreichbar. Für Zugriff aus dem Netz (z. B. QR-Code am Handy)
+      # "9192:9192" verwenden – dann am besten hinter einem Reverse-Proxy mit HTTPS.
+      - "127.0.0.1:9192:9192"
+    environment:
+      VPNGEN_USER: ${VPNGEN_USER:-admin}
+      # Leer = beim Start wird ein Zufallspasswort erzeugt (siehe "docker logs openvpn-web")
+      VPNGEN_PASSWORD: ${VPNGEN_PASSWORD:-}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - vpn-jobs:/app/jobs
     restart: unless-stopped
